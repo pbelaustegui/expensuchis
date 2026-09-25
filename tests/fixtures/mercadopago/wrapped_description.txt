@@ -1,0 +1,15 @@
+1/1
+RESUMEN DE CUENTA EN PESOS
+Zxqv Qwerty Plugh
+Zq: ZqZqZqZqZqZqZqZqZqZqZqZq CUIT/ ZqZq: ZqZqZqZqZqZqZqZqZqZqZq
+Periodo: 01 de 03 de 2026 al 31 de 03 de 2026
+Saldo inicial: $ 4.321,98
+Entradas: $ 0,00
+Salidas: $ -321,09
+Saldo final: $ 4.000,89
+DETALLE DE MOVIMIENTOS
+Fecha Operacion ID de operacion
+Movimiento Valor Saldo
+10-03-2026
+Pago con Zxqv Qwerty Plugh
+300000000001 $ -321,09 $ 4.000,89

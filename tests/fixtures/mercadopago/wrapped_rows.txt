@@ -1,0 +1,34 @@
+1/2
+RESUMEN DE CUENTA EN PESOS
+Zxqv Qwerty Plugh
+Zq: ZqZqZqZqZqZqZqZqZqZqZqZq CUIT/ ZqZq: ZqZqZqZqZqZqZqZqZqZqZq
+Periodo: 01 de 02 de 2026 al 28 de 02 de 2026
+Saldo inicial: $ 23.456,78
+Entradas: $ 1.123,44
+Salidas: $ -1.383,92
+Saldo final: $ 23.196,30
+DETALLE DE MOVIMIENTOS
+Fecha Operacion ID de operacion
+Movimiento Valor Saldo
+01-02-2026
+Transferencia recibida Zxqv Dos
+200000000001 $ 456,78 $ 23.913,56
+02-02-2026 Pago con Zxqv Uno 200000000002 $ -312,34 $ 23.601,22
+03-02-2026
+Pago con Zxqv Dos
+200000000003 $ -123,45 $ 23.477,77
+2/2
+Fecha de generacion: 28-02-2026
+Zxqv S.A. CUIT Zq-ZqZqZqZqZq-Z Av. Zxqv 1234, Qwerty, Plugh.
+de consultas en: www.zxqv.example
+Fecha Operacion ID de operacion
+Movimiento Valor Saldo
+04-02-2026 Pago Zxqv Servicio 200000000004 $ -512,34 $ 22.965,43
+05-02-2026
+Dinero retirado
+200000000005 $ -212,34 $ 22.753,09
+06-02-2026 Dinero reservado 200000000006 $ -112,34 $ 22.640,75
+07-02-2026
+Transferencia enviada Plugh
+200000000007 $ -111,11 $ 22.529,64
+08-02-2026 Rendimientos Zxqv 200000000008 $ 666,66 $ 23.196,30
