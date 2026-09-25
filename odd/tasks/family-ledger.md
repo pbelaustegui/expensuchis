@@ -311,6 +311,39 @@ whole-sample expense total is **unchanged** at 773,500 ARS and 45.00 USD — the
 moving the transfers onto a clearing account did not turn any of them into spending. Suite: 38
 tests, 24 of them in the family-model file.
 
+### Payments to individuals — the largest unclassified block (2026-09-24)
+
+Extracting every transfer line from the nine real files surfaced a pattern nobody had seen:
+**18 distinct individuals received outgoing transfers in a single quarter** from the Provincia
+account alone, plus first names and nicknames in Mercado Pago (`Persona1`, `Persona2`, `Persona3`,
+`Persona4`, `Persona5`, `Persona6`) and three more in Brubank. The user's answer to what they are:
+**a mix** — so more than one category is needed, and the imputation has to be decided *per
+counterparty*, not per movement type.
+
+Four consequences:
+
+- **The same person is identified differently in every entity.** P1 is `APELLIDO NOMBRE J` at
+  Provincia, `Nombre Apellido` at BBVA and `Nombre` in Mercado Pago; Mercado Pago uses first
+  names and nicknames where Brubank uses full names, and Provincia sometimes only a DNI plus a
+  name. A single canonical name list would fail. The mapping must be **per source variant**.
+- **The counterparty map is personal data, so it lives outside the repository.** It belongs in
+  `$EXPENSUCHIS_LEDGER_DIR` next to the ledger, never in the repo. The repo holds the mechanism;
+  the names are data. This is the privacy boundary applied to *configuration*, and it is exactly
+  the kind of file that gets committed by accident as a harmless-looking "config".
+- **The map is learned, not predefined.** A name already mapped is assigned automatically; a new
+  name is asked **once**, during the mandatory review step, and then remembered. So nothing is
+  blocked waiting for a complete list: the first import produces one classification pass and it
+  never repeats. This is why the user's "a mix" answer unblocks the work rather than delaying it.
+- **Nothing unclassified ever enters the ledger.** The model already forbids an importer from
+  writing to the ledger directly, and that rule is what stops an unknown counterparty from being
+  silently defaulted into `Expenses:Otros`. A holding account is deliberately **not** used: it
+  would let unclassified spending sit on the balance sheet unnoticed instead of being asked about.
+
+Categories this adds, to be designed in **T-04** (which owns the import workflow contract and
+therefore owns the map): proposed `Expenses:ServiciosPersonales` and `Expenses:AyudaFamiliar`,
+with the option of assigning an individual to an existing category when that is what they are — a
+professional is `Expenses:Salud:Consultas`, not a personal service.
+
 ### Native review of the clearing-account change — CLOSED (approved, authority burned)
 
 Lineage `review-760592531849cda1`, one lens (`review-reliability`, order 0), risk medium, 187
@@ -647,10 +680,10 @@ market rate. Confirm the exact presentation against a real statement before enco
    **decided** (clearing account) and applied to the model, the sample and the tests.
 2. **T-04, the import workflow contract**, then **T-05, the Mercado Pago importer**. The
    reconciliation checks are the acceptance gate; the clearing account is the transfer shape.
-3. **Blocked on the user, from T-05 onwards**: the list of names identifying family accounts as
-   they appear in each statement, so transfers can be classified as internal automatically and
-   everything else surfaces for review. Without it every transfer to a third party is a manual
-   question, and Mercado Pago alone produced 25 outgoing transfers in a single month.
+3. **The counterparty list is no longer a blocker.** The user answered "a mix", and the map is
+   **learned during review** rather than predefined, so T-04 and T-05 start now. The first real
+   import produces one classification pass — the ~20 names above, asked once — and never repeats.
+   Open for the user at that moment only: what each individual is.
 4. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
    first real month is ingested.
 5. Still open: whether Mercado Pago issues a `RESUMEN DE CUENTA EN DÓLARES`, and whether it has a
