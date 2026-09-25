@@ -525,7 +525,13 @@ market rate. Confirm the exact presentation against a real statement before enco
       `internal:<account>` or `expense:<category>` destinations, asked once during review and
       remembered, never defaulted. Categories to add: `Expenses:ServiciosPersonales` and
       `Expenses:AyudaFamiliar`, with assignment to an existing category allowed when that is what
-      the individual is. — depends on T-04a.
+      the individual is. — depends on T-04a. **Also owns one defect T-04b left in that document:
+      the quick path starts with `expensuchis bootstrap` and never says the base directory must
+      already exist.** `LedgerPaths` deliberately refuses a base that does not exist (a typo must
+      not silently split the ledger across two directories), so on a fresh machine the first
+      documented command fails with `refused: ledger-dir: ... does not exist` until the user runs
+      `mkdir -p` himself. The tool behaviour is right and its message names the fix; the document
+      is what is incomplete. Found by running the quick path instead of reading it.
 - [ ] T-05: **Mercado Pago importer — UNBLOCKED, format confirmed against two real files.**
       Parses `Resumen de cuenta en pesos` (one PDF per person per month) into beancount
       transactions, with the five reconciliation checks as a **hard gate**: it must refuse to
@@ -897,6 +903,19 @@ never a reason to re-run review on this candidate: `R3-ledger-gate-parity-pinned
    `~/.pi/gentle-ai/models.json`; `review-refuter` was missing too and would have surfaced on the
    first inferential blocker. Both now route to `opencode/claude-haiku-4-5` — in the active
    routing *and* in both profiles, so a profile re-apply does not silently drop them.
+
+#### One documentation defect the review could not have caught, and why it is not fixed here
+
+Running the documented quick path end to end (not reading it) found that it starts with
+`expensuchis bootstrap` on a machine where the ledger directory does not exist yet, and
+`bootstrap` **refuses**: `LedgerPaths` requires the base directory to exist on purpose, because a
+typo would otherwise be accepted and silently split the ledger across two directories. The
+refusal message names the fix (`mkdir -p ...`), so the tool is right and the document is
+incomplete. It is **recorded here for T-04c rather than patched now**, because the approved bytes
+are the delivered bytes: `docs/import-workflow.md` was part of the reviewed candidate, the review's
+authority is burned on that exact content, and a silent post-approval edit is precisely the class
+of thing the digest gate exists to prevent. T-04c already owns that document and will be reviewed
+as its own candidate.
 
 #### One observed interaction with the privacy guard, now verified as transient
 
