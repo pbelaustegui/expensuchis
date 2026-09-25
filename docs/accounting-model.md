@@ -145,7 +145,7 @@ amount as the expense, the full amount as the liability, and the plan captured a
 nothing is lost:
 
 ```
-2026-03-12 * "ElectroEjemplo" "Lavarropas en 12 cuotas"
+2026-03-12 * "Electrohogar Ejemplo" "Lavarropas en 12 cuotas"
   installments: 12
   first_due: "2026-04"
   installment_amount: 60000.00 ARS
@@ -197,7 +197,7 @@ perception components, *not* from MEP or CCL. Express it as a price on the USD p
 effective rate is **derived from the two amounts the statement provides** and never looked up:
 
 ```
-2026-03-10 * "StreamingEjemplo" "Suscripcion en USD"
+2026-03-10 * "Streaming Ejemplo" "Suscripcion en USD"
   Expenses:ServiciosDigitales:Suscripciones     15.00 USD @ 1580.00 ARS
   Liabilities:BBVA:P1:Visa                 -23700.00 ARS
 ```

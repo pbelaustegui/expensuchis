@@ -262,8 +262,8 @@ format**.
 - **28 movements** in the 24-day period, each row carrying a running balance.
 - **`#Ref` is a per-row reference number** — a second candidate dedup key alongside the date.
 - **The description is a counterparty name, not a movement type**: family members and third parties
-  for transfers, and the actual service provider for the rest (`AguasEjemplo`, `ElectricaEjemplo`,
-  `GasEjemplo ban bs as`, `Municipio de ejemplo`, `Instituto Ejemplo`), plus `Intereses pagados` and the
+  for transfers, and the actual service provider for the rest (`Aguas Ejemplo`, `Electrica Ejemplo`,
+  `Gas Ejemplo ban bs as`, `Municipio de ejemplo`, `Instituto Ejemplo`), plus `Intereses pagados` and the
   header's `Imp. Trans. Financieras`. **Categorization here means matching names, not parsing a
   verb** — which is a different problem from every other source.
 - **`De una cuenta tuya - BBVA` is a new trap, and it puts the cross-statement problem in real
@@ -315,8 +315,8 @@ tests, 24 of them in the family-model file.
 
 Extracting every transfer line from the nine real files surfaced a pattern nobody had seen:
 **18 distinct individuals received outgoing transfers in a single quarter** from the Provincia
-account alone, plus first names and nicknames in Mercado Pago (`Persona1`, `Persona2`, `Persona3`,
-`Persona4`, `Persona5`, `Persona6`) and three more in Brubank. The user's answer to what they are:
+account alone, plus a set of first names and nicknames in Mercado Pago and three more in
+Brubank. The user's answer to what they are:
 **a mix** — so more than one category is needed, and the imputation has to be decided *per
 counterparty*, not per movement type.
 
