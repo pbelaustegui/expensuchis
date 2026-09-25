@@ -8,6 +8,8 @@ the invariants, the refusal codes, and what the tool deliberately does not do.
 ## Quick path
 
 ```bash
+export EXPENSUCHIS_LEDGER_DIR="$HOME/expensuchis-ledger"   # outside this repo
+mkdir -p "$EXPENSUCHIS_LEDGER_DIR"
 expensuchis bootstrap                       # once, per ledger
 expensuchis identify statement.pdf          # which importer claims it?
 expensuchis extract --source MercadoPago statement.pdf
@@ -39,10 +41,15 @@ accounts.beancount                 open directives and options
 transactions/<YYYY-MM>.beancount   appended transactions, one file per month
 statements/<Source>/...            the raw files you download
 staging/<batch-id>/                proposed batches awaiting review
-counterparties.tsv                 the learned counterparty map (T-04c)
+counterparties.tsv                 the learned counterparty map
 ```
 
 `bootstrap` writes `main.beancount`, `accounts.beancount` and the layout directories.
+The ledger directory must **already exist** before `bootstrap` runs: `LedgerPaths`
+requires the base to exist so that a typo in `EXPENSUCHIS_LEDGER_DIR` cannot silently
+split the ledger across two directories, each with its own partial history. So the
+quick path `mkdir -p`s the base first; the guard is deliberate and is not worked
+around by softening it.
 
 ## The review gate is a digest, not a prompt
 
@@ -205,13 +212,90 @@ Importers live in `src/expensuchis/importers.py` and subclass beangulp's `Import
 `get_importers()` returns one fresh importer instance per supported source. It is empty
 until T-05 registers the first one.
 
-## Gap: the counterparty map
+## The counterparty map
 
-The learned counterparty map — per-source name variants, `internal:<account>` /
-`expense:<category>` destinations, asked once during review and remembered, never
-defaulted — is **not specified here**. `counterparties.tsv` exists and `CounterpartyMap`
-implements its storage, but how review resolves an unknown name into a destination is
-**T-04c**, which owns this section. Do not infer the map's design from this document.
+The map in `counterparties.tsv`, in the ledger directory, answers the question no
+importer can derive: **who was this?** It is the only place personal names are
+stored, and the only place a raw statement string becomes an account.
+
+### Key: `(source, raw_name)`, exact and case-sensitive
+
+The key is the source (`MercadoPago`, `Provincia`, ...) paired with the **raw name
+exactly as the statement spells it**, and it is case-sensitive on purpose.
+Per-source variants are the norm, not an accident: the same person reads
+`APELLIDO NOMBRE J` at Banco Provincia, `Nombre Apellido` at BBVA and a first name
+or a nickname at Mercado Pago. One row per spelling.
+
+### Destination: inside the ledger, or out of the household
+
+```
+internal:<account>     the counterparty is an account in this ledger
+expense:<category>     the money leaves the household for good
+```
+
+`internal:` names an account this ledger already opens — the son's own account,
+the user's own account at another bank. `expense:` names an expense category the
+money finally lands in.
+
+**The boundary is the ledger, not the family relationship.** A transfer into a
+family member's account that is *in the ledger* is `internal:` and is **not
+spending**. Support to a relative with **no account here** is
+`expense:Expenses:AyudaFamiliar`. Getting this backwards inflates the household
+total exactly the way counting a card settlement twice does, and it does it
+**silently**: the money is counted once as an expense and again wherever it went,
+and nothing complains, because the ledger still balances.
+
+### Never defaulted
+
+There is no holding account and no fallback to `Expenses:Otros`. An unclassified
+counterparty **stops the import**: the importer raises, `extract` refuses with
+`importer-raised`, and nothing unclassified ever reaches the ledger. The refusal
+names each unclassified row with enough context to decide — date, amount,
+description, and the raw name — plus the `counterparties.tsv` row to append:
+
+```
+refused: importer-raised: 2 counterparties are not classified.
+  2026-04-02  -25,000.00 ARS  "Cleaning service, paid in cash"  "Servicio Domestico Ejemplo"
+    append to counterparties.tsv:
+      MercadoPago<TAB>Servicio Domestico Ejemplo<TAB>expense:Expenses:ServiciosPersonales
+  2026-04-05  -40,000.00 ARS  "Family support"  "Familiar Ejemplo"
+    append to counterparties.tsv:
+      MercadoPago<TAB>Familiar Ejemplo<TAB>expense:Expenses:AyudaFamiliar
+```
+
+**That message shape is a contract the first importer (T-05) implements, not
+behaviour that exists today.** Nothing in the current code calls the map during
+`extract`: `CounterpartyMap` stores and resolves rows, but the refusal path and its
+message belong to T-05. Do not read this section as a description of running code.
+
+### Asked once, remembered
+
+The map is an **append-only TSV** in the ledger directory, and the **last row for a
+key wins**. A correction is therefore one appended row, never a rewrite that could
+lose a hand edit. Recording a row is followed by re-running `extract`, which
+produces a different batch and therefore a different digest — and so a **fresh
+approval**. The digest gate still holds after a classification pass, because the
+approved bytes are still the bytes that get appended.
+
+### Personal data stays outside the repository
+
+The names live in `$EXPENSUCHIS_LEDGER_DIR/counterparties.tsv`, **never in this
+repository** — including in category names. That is why the two categories below are
+coarse: **no per-person categories**, because this document and the sample are
+public.
+
+### The two categories, and when each applies
+
+- `Expenses:ServiciosPersonales` — a **person who performs a service**: cleaning,
+  repairs, private classes.
+- `Expenses:AyudaFamiliar` — money that **leaves the household for good**, with no
+  account here.
+
+When the individual is something else, assign the existing category that is what
+they are. A doctor is `Expenses:Salud:Consultas`; a lawyer is not
+`Expenses:ServiciosDigitales`; `Expenses:Otros` is a last resort, not a plan. The
+point is that a professional is not a "personal service": the category is chosen by
+**what the counterparty is**, not by the fact that they are a person.
 
 ## Checklist
 
@@ -224,5 +308,6 @@ implements its storage, but how review resolves an unknown name into a destinati
 
 ## Next step
 
-Writing the first importer is **T-05** (Mercado Pago). The counterparty-map design is
-**T-04c**.
+Writing the first importer is **T-05** (Mercado Pago), which also implements the
+counterparty-map refusal described above. The map's design is specified in this
+document.

@@ -18,6 +18,11 @@ Layout::
 
 ``destination`` is either ``internal:<account>`` or ``expense:<category>``.
 Anything else is a malformed row and raises.
+
+An ``internal:`` destination means the counterparty is an account **in this
+ledger**, which is what keeps a family transfer from becoming spending: money that
+moves between accounts here is not an expense, while ``expense:`` is money that
+leaves the household for good.
 """
 
 from __future__ import annotations
