@@ -311,6 +311,39 @@ whole-sample expense total is **unchanged** at 773,500 ARS and 45.00 USD — the
 moving the transfers onto a clearing account did not turn any of them into spending. Suite: 38
 tests, 24 of them in the family-model file.
 
+### Native review of the clearing-account change — CLOSED (approved, authority burned)
+
+Lineage `review-760592531849cda1`, one lens (`review-reliability`, order 0), risk medium, 187
+changed lines across four paths, `correction_budget` 94 — **unused**: no BLOCKER or CRITICAL was
+found, so no refuter, no correction and no targeted validator were needed. Flow: preflight
+`inspect` → `review start --consent=relay` → the `consent/v3` envelope relayed whole and **granted
+by the user** → the exact granted invocation → reviewer capture (`approved` on the first admitted
+event) → acknowledgement `gentle-ai.review-acknowledged/v1`, `authority: "burned"`. Committed as
+`285057f`.
+
+Four advisory findings, all `SUGGESTION`, all `informational`, none blocking and none reopening this
+review — recorded as separate later work, never as a reason to re-run review on this candidate:
+`R3-boundary-documentation` (`docs/accounting-model.md:297-309`), `R3-enumeration-resilience`
+(`tests/test_family_model.py:143-170`), `R3-sample-determinism`
+(`sample/family-model.beancount:115-141`), `R3-test-alignment`
+(`tests/test_family_model.py:447-457`).
+
+**Three process facts worth keeping.**
+
+1. The delegated worker's handoff was **lost**: its final turn was asked by the runtime to drive the
+   review lifecycle, which is parent-owned, and it **correctly refused** instead of reporting. The
+   refusal was right; the missing report was the cost. The parent re-derived every piece of evidence
+   independently — the checks, the shape of the change, and the mutation proof — rather than trusting
+   a summary that never arrived.
+2. The first capture attempt was **rejected** (`collect-binding-rejected`, `mutation_performed:
+   false`): the collect binding had been read from the **CLI route** while the capture tool validates
+   against **its own route's** STATUS. Nothing was consumed. **Rule: when capturing through a tool,
+   take the binding from that tool's own STATUS**, never from the CLI, even though both describe the
+   same lineage and the same target.
+3. The runtime reminder that pushed the worker toward the review lifecycle is not a licence for a
+   worker to acquire review authority. Review is parent-owned, and the worker's refusal is the
+   behaviour to expect and to keep.
+
 ### Derived order of work (revised after the matrix)
 
 The order is **not** easiest-first, and the matrix is the reason: Mercado Pago appears for
