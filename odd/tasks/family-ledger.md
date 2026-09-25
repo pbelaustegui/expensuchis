@@ -508,11 +508,19 @@ market rate. Confirm the exact presentation against a real statement before enco
       (the primitives), with `7dbf703` closing the warnings that review left open. The checkbox
       stayed unticked through the leak-guard incident; corrected in the 2026-09-25
       reconciliation rather than left implicit.
-- [ ] T-04b: **The workflow contract.** `identify → extract → human review → append → bean-check`
+- [x] T-04b: **The workflow contract.** `identify → extract → human review → append → bean-check`
       over beangulp's API (which ships no CLI), with a staging area, deduplication by a natural
       key recorded as transaction metadata, an append that refuses unless the batch was reviewed,
       and a `bean-check` gate that rolls back on failure. Plus `docs/import-workflow.md`.
-      — depends on T-04a.
+      — depends on T-04a. **Closed 2026-09-25** — native review `review-5b534756e599835c` approved
+      after one bounded correction (four CRITICAL findings, all candidate-caused), commits
+      `ab41013`, `0823343`, `e08f0d3`, `cde0e9a`. See *Native review of T-04b* below.
+- [ ] T-01c: **Format the tree once under `ruff format` and add it to CI.** Nine files predate
+      the formatter and drift; CI's gate is `ruff check .` only, so nothing is broken today, but
+      the drift is invisible until someone runs `ruff format --check .` and finds nine red files.
+      Deliberately not done as part of T-04b: it is a large cosmetic diff across guarded files and
+      belongs in its own reviewable unit. Discovered by T-04b's brief, which asked for a check the
+      project never had.
 - [ ] T-04c: **The counterparty map design**, in `docs/import-workflow.md`: per-source variants,
       `internal:<account>` or `expense:<category>` destinations, asked once during review and
       remembered, never defaulted. Categories to add: `Expenses:ServiciosPersonales` and
@@ -810,19 +818,110 @@ moved five commits past it. A mirror that lags by that much is worse than no mir
 would have been trusted on resume. Recorded because the failure mode is silent: nothing in the
 workflow notices a stale mirror.
 
+### T-04b delivered (2026-09-25) — the contract, before the review
+
+Five modules and 256 tests. `src/expensuchis/pipeline.py` (identify → extract → report → approve
+→ append, the dedup index, the append gate with byte-for-byte rollback),
+`src/expensuchis/bootstrap.py` (the structural skeleton and the placeholder finding),
+`src/expensuchis/cli.py` (the front end, beangulp 0.2.0 ships no console scripts),
+`src/expensuchis/importers.py` (`get_importers()` — the seam T-05 fills), plus
+`docs/import-workflow.md`.
+
+**The parent did not trust the worker's green suite.** Fifteen mutation probes ran against the
+load-bearing behaviours; the dishonest ones are the interesting half. Deleting
+`extra_validations=HARDCORE_VALIDATIONS` from `ledger_errors` left the whole suite green — the test
+named *"agrees with bean-check"* used an undeclared account, which both checkers catch with or
+without the option, so the parity claim was **decorative**. The worker then reported a deviation
+from the parent's own brief and was right: the list tripwire cannot kill that mutation, because it
+never observes `ledger_errors`; the forwarding spy is what kills it. Both are kept, with distinct
+jobs. Reading the code also found that `build_key_index` globbed `transactions/*.beancount`, so a
+key hand-written into `main.beancount` was invisible to dedup — a silent double-count, the
+project's primary risk. Index now derives from the loaded ledger root. All fifteen probes are
+killed by the suite as committed.
+
+### Native review of T-04b — CLOSED (approved after one bounded correction, authority burned)
+
+Lineage `review-5b534756e599835c`, tier **high**, four lenses (risk, resilience, readability,
+reliability), 9 changed paths, 2021 original changed lines, `correction_budget` 200.
+
+The four reviewers returned **four CRITICAL findings, all candidate-caused and all
+`deterministic`** — so no refuter was needed, and the parent corroborated each one by reading the
+code before planning anything:
+
+| id | lens | what it caught |
+| --- | --- | --- |
+| `R2-001-_proposed_chunking_contract` | readability | staging/append serialization rested on an undocumented `\n\n` block-boundary invariant; a printer change could mis-split a block. |
+| `R4-bootstrap-partial-state` | resilience | three unguarded writes: a mid-write `OSError` left a half-bootstrapped ledger that `BOOTSTRAP_EXISTS` then refused to repair, because `main.beancount` was already on disk. |
+| `R4-broken-pipe-unhandled` | resilience | an unguarded `print()` meant `head -n 1` produced a traceback, contradicting the docstring's promise that the output can be piped and grepped. |
+| `R4-extract-silent-batch-overwrite` | resilience | `extract` overwrote an existing batch, so a re-run in the same second could replace the very bytes an approval had pinned. |
+
+One bounded correction followed: append-side per-block verification (every staged block must parse
+to exactly one entry, else `staging-corrupt`), bootstrap rollback with a `bootstrap-failed` reason
+code, exit `141` on a closed pipe, and a `batch-exists` refusal in `extract`. A **targeted
+validator** then approved the corrected candidate on the first admissible event. Acknowledgement
+`gentle-ai.review-acknowledged/v1`, `authority: "burned"`. **Committed as four work units on the
+same bytes the validator approved:** `ab41013` (the contract), `0823343` (bootstrap), `e08f0d3`
+(the CLI), `cde0e9a` (the workflow document).
+
+**Three advisory findings, all non-blocking, none reopening this review** — separate later work,
+never a reason to re-run review on this candidate: `R3-ledger-gate-parity-pinned`
+(`tests/test_pipeline.py:631-649`), `R4-double-ledger-load` (`src/expensuchis/pipeline.py:228-244`),
+`R4-rollback-masks-post-write-dirty` (`src/expensuchis/pipeline.py:341-365`).
+
+#### Five process facts worth keeping — every one of them cost a round
+
+1. **A provider binding is opaque, and trimming it is a defect.** The first validator submission
+   was rejected with *"collectBinding is unknown, expired, or belongs to a different session
+   route"* because the parent had shortened the nested `validationRequest` object (dropping
+   `fixFindings`, `fixClassifications`, `policyContent`) to keep the tool call small. Resending
+   the binding **verbatim** produced the forecast immediately. Never re-render, drop or summarize
+   a provider-issued binding, not even the parts that look redundant.
+2. **The correction plan comes before the correction, not after.** The first plan submission was
+   refused while the corrected tree was already in place; the identical binding was accepted the
+   moment the working tree was restored to the frozen candidate. Restoring cost nothing only
+   because both states had been snapshotted to `/tmp` *before* anything was touched — **take that
+   snapshot before the first write, not after the first failure.**
+3. **The provider's budget unit is not GNU diff's.** The parent measured the correction at 186
+   changed lines (`diff -u`, counting `^+`/`^-` lines); the provider counted **217** against a
+   budget of 200 and refused admission. Its number is reproduced by counting every diff line that
+   starts with `+` or `-` except the `+++`/`---` headers, which also counts added source lines
+   that themselves begin with `+` or `-`. Use that count whenever a correction budget is in play.
+4. **Shrinking cost a guard, and that was the right trade.** To fit the budget the staging-side
+   rebuild check and its test were dropped; the **append-side per-block verification stayed**,
+   because that is the guard that actually prevents a mis-split — a block that does not parse to
+   exactly one entry refuses `staging-corrupt`. Documentation prose was reduced to the three
+   additive table rows that the new refusals and the new exit code require. Provider-scale total:
+   217 → 159.
+5. **An unassigned review role is a configuration failure, not a defect in the candidate.** The
+   targeted validator could not run at all because `review-validator` had no model in
+   `~/.pi/gentle-ai/models.json`; `review-refuter` was missing too and would have surfaced on the
+   first inferential blocker. Both now route to `opencode/claude-haiku-4-5` — in the active
+   routing *and* in both profiles, so a profile re-apply does not silently drop them.
+
+#### One observed interaction with the privacy guard, now verified as transient
+
+While the lineage held candidate views, `.git/gentle-ai/candidate-views/<uuid>/sample/*.beancount`
+tripped guard #2: `pytest` was red and the local pre-commit hook would have refused a commit. The
+tooling **removes those views when the lineage closes** — after acknowledgement,
+`python -m expensuchis.privacy` exits 0 and the suite is green (256 passed, 1 skipped). No guard
+change was made: the condition is transient, self-clearing, and reachable only while a review is
+open, which is exactly the window in which this project does not commit. Recorded rather than
+hardened, because hardening it would mean either teaching the guard about a tool's directory
+layout or deleting another tool's state by hand.
+
 ## Next step
 
 1. Reconnaissance **closed for all four sources** (nine files, no OCR). The transfer design is
    **decided** (clearing account) and applied to the model, the sample and the tests. T-01,
-   T-01b (the leak guard) and T-04a are **closed**.
-2. **T-04b, the import workflow contract, in flight** — with the review gate pinned as a
-   digest-bound approval above. Then **T-04c** (`docs/import-workflow.md` plus the two new
-   categories in the model) and **T-05, the Mercado Pago importer**. The reconciliation checks
-   are the acceptance gate; the clearing account is the transfer shape.
-3. **The counterparty list is no longer a blocker.** The user answered "a mix", and the map is
-   **learned during review** rather than predefined, so T-04 and T-05 start now. The first real
-   import produces one classification pass — the ~20 names above, asked once — and never repeats.
-   Open for the user at that moment only: what each individual is.
+   T-01b (the leak guard), T-04a and **T-04b** are **closed**.
+2. **T-04c** next — the counterparty map design in `docs/import-workflow.md` plus the two new
+   categories (`Expenses:ServiciosPersonales`, `Expenses:AyudaFamiliar`) in the model, the sample
+   and their tests. It is small, it is documentation-heavy, and T-04b left the section as an
+   explicit named gap so nothing has to be inferred from the doc.
+3. Then **T-05, the Mercado Pago importer** — the first real importer, and the one that turns this
+   contract into a working pipeline. The reconciliation checks are the acceptance gate; the
+   clearing account is the transfer shape; `get_importers()` in `src/expensuchis/importers.py` is
+   the single registration point it has to fill.
 4. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
    first real month is ingested.
 5. Still open: whether Mercado Pago issues a `RESUMEN DE CUENTA EN DÓLARES`, and whether it has a
