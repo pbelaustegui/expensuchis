@@ -26,11 +26,17 @@ uses invented placeholders.
 
 ```
 Assets:<Entity>:<Person>:<Product>
+Assets:TransferenciaEnTransito
 Liabilities:<Entity>:<Person>:<Card>
 Expenses:<Area>[:<Category>]
 Income:<Person>:<Source>
 Equity:Opening-Balances
 ```
+
+`Assets:TransferenciaEnTransito` is a **technical account**. It is not the user's money. It
+exists only to hold one side of an internal transfer until the other side arrives, and it must
+return to exactly zero. It is an asset by placement, not by ownership: nothing may be reported
+as if the household held it.
 
 - `<Entity>` — `BBVA`, `Provincia`, `Brubank`, `MercadoPago`. Prose says "Banco Provincia";
   account names use `Provincia`. Same entity, two spellings, by convention.
@@ -256,9 +262,61 @@ never an expense. Two rules follow:
 ```
 
 The same real transfer appears as a line in **two different statements**: a debit in one
-account's statement and a credit in the other's. Producing **one balanced transaction per real
-transfer**, not one per statement line, is **T-04's responsibility**. The model assumes it: two
-per-line transactions would record the transfer twice.
+account's statement and a credit in the other's. Rather than match the two statements, **each
+importer emits its own side and posts the counterpart to `Assets:TransferenciaEnTransito`**.
+When both sides have been imported, that account is **exactly zero**. The debit in one
+statement looks like this:
+
+```
+2026-03-16 * "Mercado Pago" "Transfer P1 to P2 (P1 statement)"
+  Assets:MercadoPago:P1:Caja            -20,000.00 ARS
+  Assets:TransferenciaEnTransito         20,000.00 ARS
+```
+
+and the matching credit in the other statement posts the opposite counterpart:
+
+```
+2026-03-16 * "Mercado Pago" "Transfer P1 to P2 (P2 statement)"
+  Assets:MercadoPago:P2:Caja             20,000.00 ARS
+  Assets:TransferenciaEnTransito        -20,000.00 ARS
+```
+
+Each transaction balances on its own, so neither importer needs the other file, and the two
+sides of the real transfer cancel in the clearing account. The rule is about what an importer
+emits: its own statement's line, with the clearing account as the counterpart.
+
+**The clearing account balances to exactly zero once both sides are imported, and a non-zero
+balance means a statement has not been imported yet.** This is a check the user can run, not
+merely a property of the model: sum every account under `Assets:TransferenciaEnTransito` and
+expect zero — a reportable daily query. A missing statement, a missing side, or a transfer
+whose counterpart never came leaves a visible remainder instead of a silent gap.
+
+**Rejected alternative.** Matching the two sides across statements and recording one balanced
+transaction per real transfer was the first design. It was rejected because it needs both files
+in the same run, and when a counterpart is missing — a statement not yet imported, a transfer
+between accounts whose statements arrive in different months — it fails silently: the transfer
+simply does not exist in the ledger and nothing signals the loss. It also has no tolerance for
+being off by a cent, which turns an otherwise clean import into a manual investigation. The
+clearing account is per-statement, needs no other file, and fails loudly whenever a piece is
+missing.
+
+**Boundary of the rule.** The clearing account is for transfers between accounts **that are in
+the ledger**. A transfer whose counterparty is **not** in the ledger — an outside person, a
+merchant, a loan — is **not** a clearing transfer: it is an expense, or an unresolved item. An
+unresolved counterparty must **surface for the user during review**; it must **never** be
+silently defaulted into an expense category or into the clearing account. Defaulting it would
+either bury real spending in a technical account that is supposed to return to zero, or invent
+a category the user never chose.
+
+The rule is uniform: it does not depend on whether the two sides happen to arrive in one
+statement file or two. Mercado Pago's `Transferencia enviada`/`recibida` between family members
+both appear in statements that are in the ledger, and a single statement can carry both sides;
+even there, each side is emitted with the clearing counterpart, so the shape is identical.
+
+**A cross-currency transfer is the exception, and it is not a same-currency clearing movement.**
+It is an FX operation carrying the rate actually executed in it, so its two legs stay in one
+transaction (see the example above). Both legs belong to the same operation and arrive together;
+there is no second statement to wait for, so there is nothing to bridge.
 
 ## Income
 
@@ -373,7 +431,9 @@ placeholder product and merchant names, which is fine in a synthetic sample:
 5. A USD purchase charged to a USD card balance, settled separately from USD savings with no
    rate (case b).
 6. A USD purchase debited directly from a USD savings account with no rate (case c).
-7. An internal transfer between two family members' accounts.
+7. An internal transfer between two family members' accounts, emitted as two sides — the debit
+   and the credit — each posting `Assets:TransferenciaEnTransito`, so the clearing account nets
+   to zero.
 8. A cross-currency internal transfer, with the rate the operation executed.
 
 And the assertions that make the model meaningful, in `tests/test_family_model.py`:
@@ -386,6 +446,10 @@ And the assertions that make the model meaningful, in `tests/test_family_model.p
   total rose from 773,500 to 818,500 ARS.
 - Every liability except the installment plan is **exactly zero**, enumerated over all
   `Liabilities:*` accounts rather than a hardcoded one, so an unsettled card cannot hide.
+- The transfer-clearing account is **exactly zero** at the end of the sample, enumerated over
+  every opened account under `Assets:TransferenciaEnTransito`, so a renamed or extra clearing
+  account cannot hide a missing statement side. A non-zero balance here names a statement that
+  has not been imported.
 - The settlement transactions contribute **no** `Expenses:` posting.
 - The administrative `@` price on the USD purchase equals the two amounts on the statement, and
   the set of priced postings is exactly the expected set — a count alone would be satisfied by

@@ -286,8 +286,30 @@ than the one it does:
   clearing account nets to exactly zero, and **a non-zero balance in it is a loud daily signal that
   one side is missing** — the same fail-loud discipline as the reconciliation checks.
 
-Option B is per-statement, needs no cross-file orchestration, and turns a silent failure into a
-visible one. **Open: decide in T-04**, because it changes every importer's output shape.
+**DECIDED 2026-09-24 — the user chose Option B, the clearing account.** Every importer emits its
+own side and posts the counterpart to `Assets:TransferenciaEnTransito`; both sides together net to
+exactly zero, and a non-zero balance means a statement has not been imported yet. Option A was
+rejected because it needs both files in the same run and fails silently when a counterpart is
+missing or off by a cent.
+
+The boundary the real files forced: **the clearing account is for transfers between accounts that
+are in the ledger.** A transfer to a counterparty that is not in the ledger — an outside person, a
+merchant, a loan — is an expense or an unresolved item, must surface for the user during review,
+and must never be silently defaulted into a category or into the clearing account.
+
+Applied to `docs/accounting-model.md`, `sample/family-model.beancount` and
+`tests/test_family_model.py`: the sample now shows both sides labelled by statement
+(`(P1 statement)` / `(P2 statement)`), and the new assertion enumerates every opened account under
+the clearing prefix rather than hardcoding one.
+
+**Mutation-proved by the parent, not trusted from a report** — the worker's handoff was lost to a
+harness interruption (its final turn was asked to drive the review lifecycle, which is parent-owned,
+and it correctly refused instead of reporting; the refusal was right, the lost report was the cost).
+Deleting one side of the P1-to-P2 transfer from a copy of the sample makes **exactly one test
+fail**, with `{'Assets:TransferenciaEnTransito': {'ARS': Decimal('20000.00')}}`. The pinned
+whole-sample expense total is **unchanged** at 773,500 ARS and 45.00 USD — the confirmation that
+moving the transfers onto a clearing account did not turn any of them into spending. Suite: 38
+tests, 24 of them in the family-model file.
 
 ### Derived order of work (revised after the matrix)
 
@@ -588,12 +610,15 @@ market rate. Confirm the exact presentation against a real statement before enco
 
 ## Next step
 
-1. ~~Commit T-02~~ done (`669d0ac`). ~~Put a real file through the model~~ done — two Mercado
-   Pago statements, and **the model held**: the parse reconciles exactly on both files, and the
-   internal-transfer rule turned out to be the majority of the data rather than an edge case.
-2. **T-04, the import workflow contract**, then **T-05, the Mercado Pago importer**, now that the
-   format is known and self-verifying. The reconciliation gate is the acceptance criterion.
-3. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
+1. Reconnaissance **closed for all four sources** (nine files, no OCR). The transfer design is
+   **decided** (clearing account) and applied to the model, the sample and the tests.
+2. **T-04, the import workflow contract**, then **T-05, the Mercado Pago importer**. The
+   reconciliation checks are the acceptance gate; the clearing account is the transfer shape.
+3. **Blocked on the user, from T-05 onwards**: the list of names identifying family accounts as
+   they appear in each statement, so transfers can be classified as internal automatically and
+   everything else surfaces for review. Without it every transfer to a third party is a manual
+   question, and Mercado Pago alone produced 25 outgoing transfers in a single month.
+4. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
    first real month is ingested.
-4. Open for the user: whether Mercado Pago has a USD statement or a separate card statement, and
-   the real export formats inside BBVA, Banco Provincia and Brubank.
+5. Still open: whether Mercado Pago issues a `RESUMEN DE CUENTA EN DÓLARES`, and whether it has a
+   card statement separate from the account statement.

@@ -31,6 +31,7 @@ VISA_USD = "Liabilities:BBVA:P1:VisaUSD"
 INSTALLMENT_CARD = "Liabilities:Provincia:P2:Visa"
 EXPENSES_PREFIX = "Expenses:"
 LIABILITIES_PREFIX = "Liabilities:"
+CLEARING_PREFIX = "Assets:TransferenciaEnTransito"
 EQUITY_OPENING = "Equity:Opening-Balances"
 
 # Pinned on purpose. Any change to the sample must be a deliberate change to this
@@ -137,6 +138,35 @@ def test_every_liability_except_the_installment_plan_is_zero() -> None:
     # The case-(b) USD card is settled, and the ARS card is settled, so both are zero.
     assert _is_zero(balances[VISA_USD]), balances[VISA_USD]
     assert _is_zero(balances[CARD]), balances[CARD]
+
+
+def test_transfer_clearing_account_is_exactly_zero_when_both_sides_are_present() -> None:
+    """The clearing account is zero only once both statements' sides are imported.
+
+    Enumerated over every opened account under the clearing prefix, like the
+    liability check, so a renamed or additional clearing account cannot hide a
+    missing side. A non-zero balance is the loud signal that a statement has not
+    been imported yet.
+    """
+    entries, errors, _ = loader.load_file(str(SAMPLE_LEDGER))
+    assert errors == [], errors
+    transactions = [entry for entry in entries if isinstance(entry, data.Transaction)]
+    clearing_accounts = sorted(
+        entry.account
+        for entry in entries
+        if isinstance(entry, data.Open) and entry.account.startswith(CLEARING_PREFIX)
+    )
+    assert clearing_accounts, "sample must open the transfer-clearing account"
+
+    balances = {account: _balance(transactions, account) for account in clearing_accounts}
+    outstanding = {
+        account: balance
+        for account, balance in balances.items()
+        if not _is_zero(balance)
+    }
+    assert outstanding == {}, (
+        f"transfer clearing must be zero once both sides are imported: {outstanding}"
+    )
 
 
 def test_settlement_contributes_no_expense_posting() -> None:
@@ -414,11 +444,13 @@ def test_p3_has_no_income_and_is_funded_by_transfer() -> None:
     assert all("P3" not in account for account in income_accounts)
 
     funding = _tagged(transactions, "transfer-to-p3")
-    assert len(funding) == 1
-    p3_leg = [
+    # Two sides: P1's debit and P3's credit, each posting the clearing counterpart.
+    assert len(funding) == 2
+    p3_legs = [
         posting
-        for posting in funding[0].postings
+        for entry in funding
+        for posting in entry.postings
         if posting.account == "Assets:MercadoPago:P3:Caja"
     ]
-    assert len(p3_leg) == 1
-    assert p3_leg[0].units.number > 0
+    assert len(p3_legs) == 1
+    assert p3_legs[0].units.number > 0

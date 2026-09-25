@@ -26,6 +26,10 @@ option "operating_currency" "ARS"
 ;; --- P3: Mercado Pago only. Spends only, no income, funded by transfers. ---
 2026-01-01 open Assets:MercadoPago:P3:Caja      ARS
 
+;; --- Technical account. Not the user's money: it holds one side of an internal
+;; transfer until the other statement's side is imported, and must return to zero.
+2026-01-01 open Assets:TransferenciaEnTransito ARS
+
 ;; --- Expense categories. Opened without a currency constraint: a category may
 ;; receive both ARS and USD postings, and pinning it to one commodity breaks that.
 2026-01-01 open Expenses:Supermercado
@@ -108,15 +112,27 @@ option "operating_currency" "ARS"
   Liabilities:BBVA:P1:Visa                  23,700.00 ARS
   Assets:BBVA:P1:Caja                      -23,700.00 ARS
 
-;; Scenario 7: an internal transfer between two family members (P1 -> P2).
-2026-03-16 * "Mercado Pago" "Transfer P1 to P2" #internal-transfer
-  Assets:MercadoPago:P2:Caja             20,000.00 ARS
+;; Scenario 7: an internal transfer between two family members (P1 -> P2). Each
+;; statement emits its own side and posts the counterpart to the clearing account;
+;; once both sides are imported the clearing account nets to exactly zero. These
+;; two entries stand in for the debit in P1's statement and the credit in P2's.
+2026-03-16 * "Mercado Pago" "Transfer P1 to P2 (P1 statement)" #internal-transfer
   Assets:MercadoPago:P1:Caja            -20,000.00 ARS
+  Assets:TransferenciaEnTransito         20,000.00 ARS
 
-;; Scenario 7: the transfer that funds P3, who has no income of his own.
-2026-03-15 * "Mercado Pago" "Transfer P1 to P3" #transfer-to-p3
-  Assets:MercadoPago:P3:Caja             30,000.00 ARS
+2026-03-16 * "Mercado Pago" "Transfer P1 to P2 (P2 statement)" #internal-transfer
+  Assets:MercadoPago:P2:Caja             20,000.00 ARS
+  Assets:TransferenciaEnTransito        -20,000.00 ARS
+
+;; Scenario 7: the transfer that funds P3, who has no income of his own. Same
+;; two-sided clearing shape: P1's debit and P3's credit, netting to zero.
+2026-03-15 * "Mercado Pago" "Transfer P1 to P3 (P1 statement)" #transfer-to-p3
   Assets:MercadoPago:P1:Caja            -30,000.00 ARS
+  Assets:TransferenciaEnTransito         30,000.00 ARS
+
+2026-03-15 * "Mercado Pago" "Transfer P1 to P3 (P3 statement)" #transfer-to-p3
+  Assets:MercadoPago:P3:Caja             30,000.00 ARS
+  Assets:TransferenciaEnTransito        -30,000.00 ARS
 
 ;; Scenario 7b: a cross-currency internal transfer (an FX operation). It is not an
 ;; expense, because both postings stay inside Assets:*. Unlike a market FX series, the
