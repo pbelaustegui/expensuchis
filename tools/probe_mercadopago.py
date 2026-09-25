@@ -24,8 +24,9 @@ Usage::
 
 ``--text`` reads already-extracted text files instead of PDFs. It exists so the probe
 itself can be exercised against the synthetic fixtures in ``tests/fixtures`` without a
-PDF engine; production runs read PDFs through ``pypdfium2``, imported lazily inside
-:func:`_extract_pdf`.
+PDF engine; production runs read PDFs through
+:func:`expensuchis.importers.pdf.read_pdf`, which imports ``pypdfium2`` lazily inside the
+function.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from expensuchis.importers.mercadopago import (
     ResumenParseError,
     parse_resumen,
 )
+from expensuchis.importers.pdf import read_pdf
 
 #: Path-separator-separated (``os.pathsep``) list of statement paths, used when argv is empty.
 ENV_VAR = "EXPENSUCHIS_MP_STATEMENTS"
@@ -51,17 +53,6 @@ ENV_VAR = "EXPENSUCHIS_MP_STATEMENTS"
 
 def _hash12(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()[:12]
-
-
-def _extract_pdf(path: Path) -> tuple[str, int]:
-    import pypdfium2 as pdfium
-
-    document = pdfium.PdfDocument(str(path))
-    try:
-        pages = [page.get_textpage().get_text_range() for page in document]
-        return "\f".join(pages), len(document)
-    finally:
-        document.close()
 
 
 def _extract_text(data: bytes) -> tuple[str, int]:
@@ -122,12 +113,15 @@ def main(argv: list[str] | None = None) -> int:
         try:
             data = path.read_bytes()
         except OSError as exc:
-            print(f"statement <unreadable> refused (read error: {exc.strerror})", file=sys.stderr)
+            print(
+                f"statement <unreadable> refused (read error: {type(exc).__name__})",
+                file=sys.stderr,
+            )
             failed = True
             continue
         source_hash = _hash12(data)
         try:
-            text, pages = _extract_text(data) if args.text else _extract_pdf(path)
+            text, pages = _extract_text(data) if args.text else read_pdf(path)
         except Exception as exc:  # noqa: BLE001 - report the class, never the bytes
             print(
                 f"statement {source_hash} refused (text extraction failed: {type(exc).__name__})",
