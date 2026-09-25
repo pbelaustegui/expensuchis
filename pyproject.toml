@@ -11,6 +11,9 @@ dependencies = [
     "pypdfium2>=5.13.0",
 ]
 
+[project.scripts]
+expensuchis = "expensuchis.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

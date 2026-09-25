@@ -1,0 +1,148 @@
+"""The expensuchis command-line front end.
+
+beangulp 0.2.0 ships no console scripts, so this module is the front end over its
+``Importer`` API. Commands mirror the workflow contract:
+
+    expensuchis bootstrap
+    expensuchis identify <path>...
+    expensuchis extract --source <name> <path>
+    expensuchis report <batch-id>
+    expensuchis approve <batch-id>
+    expensuchis append <batch-id>
+
+Exit codes are stable: ``0`` success, ``1`` a refusal or validation failure (printed
+with a greppable reason code and one human sentence), ``2`` a usage error, ``141`` the
+consumer closed the output pipe (the SIGPIPE status; the command itself succeeded).
+Output is plain text, never colour, so it can be piped and grepped.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from collections.abc import Sequence
+
+from . import pipeline
+from .bootstrap import BootstrapError, bootstrap
+from .ledger import LedgerDirError
+from .paths import LedgerPaths
+from .pipeline import PipelineError
+
+__all__ = ["build_parser", "main"]
+
+_REFUSAL_PREFIX = "refused"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Return the top-level argparse parser with one subparser per command."""
+    parser = argparse.ArgumentParser(
+        prog="expensuchis",
+        description="Beancount-based family ledger ingest pipeline.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    subparsers.add_parser(
+        "bootstrap", help="create the ledger skeleton and layout (refuses to overwrite)"
+    )
+
+    identify_parser = subparsers.add_parser(
+        "identify", help="report which importer claims each statement file"
+    )
+    identify_parser.add_argument("paths", nargs="+", metavar="PATH")
+
+    extract_parser = subparsers.add_parser(
+        "extract", help="parse a statement into a staging batch for review"
+    )
+    extract_parser.add_argument("--source", required=True, metavar="NAME", help="source name")
+    extract_parser.add_argument("path", metavar="PATH", help="statement file to extract")
+
+    report_parser = subparsers.add_parser("report", help="print a staged batch's review report")
+    report_parser.add_argument("batch_id", metavar="BATCH-ID")
+
+    approve_parser = subparsers.add_parser(
+        "approve", help="bind the reviewed batch bytes by sha256"
+    )
+    approve_parser.add_argument("batch_id", metavar="BATCH-ID")
+
+    append_parser = subparsers.add_parser("append", help="append an approved batch to the ledger")
+    append_parser.add_argument("batch_id", metavar="BATCH-ID")
+
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the CLI and return a process exit code."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        paths = LedgerPaths()
+    except LedgerDirError as exc:
+        print(f"{_REFUSAL_PREFIX}: ledger-dir: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        code = _dispatch(args, paths)
+        sys.stdout.flush()  # surface a buffered BrokenPipeError inside the guard
+        return code
+    except (PipelineError, BootstrapError) as exc:
+        print(f"{_REFUSAL_PREFIX}: {exc.reason}: {exc.message}", file=sys.stderr)
+        return 1
+    except LedgerDirError as exc:
+        print(f"{_REFUSAL_PREFIX}: ledger-dir: {exc}", file=sys.stderr)
+        return 1
+    except BrokenPipeError:
+        _silence_stdout()
+        return 141
+
+
+def _silence_stdout() -> None:
+    """Point stdout at ``os.devnull``; tolerate a stdout with no file descriptor."""
+    try:
+        descriptor = sys.stdout.fileno()
+    except (OSError, ValueError):
+        return
+    try:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), descriptor)
+    except OSError:
+        pass
+
+
+def _dispatch(args: argparse.Namespace, paths: LedgerPaths) -> int:
+    if args.command == "bootstrap":
+        for path in bootstrap(paths):
+            print(f"created: {path}")
+        return 0
+
+    if args.command == "identify":
+        for identification in pipeline.identify(args.paths):
+            print(f"{identification.filepath}\t{identification.importer.name}")
+        return 0
+
+    if args.command == "extract":
+        result = pipeline.extract(paths, args.source, args.path)
+        print(f"batch_id: {result.batch_id}")
+        print(f"report_path: {result.report_path}")
+        print(f"entries: {result.entries}  skipped: {result.skipped}")
+        print(f"next: expensuchis report {result.batch_id}")
+        return 0
+
+    if args.command == "report":
+        print(pipeline.report(paths, args.batch_id), end="")
+        return 0
+
+    if args.command == "approve":
+        approval = pipeline.approve(paths, args.batch_id)
+        print(f"approved: {args.batch_id}")
+        print(f"sha256: {approval['sha256']}")
+        return 0
+
+    if args.command == "append":
+        result = pipeline.append(paths, args.batch_id)
+        print(f"appended: {result.batch_id}")
+        for path in result.files:
+            print(f"wrote: {path}")
+        return 0
+
+    raise AssertionError(f"unhandled command {args.command!r}")  # pragma: no cover
