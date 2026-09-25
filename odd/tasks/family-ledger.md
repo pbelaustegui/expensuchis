@@ -521,7 +521,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       Deliberately not done as part of T-04b: it is a large cosmetic diff across guarded files and
       belongs in its own reviewable unit. Discovered by T-04b's brief, which asked for a check the
       project never had.
-- [ ] T-04c: **The counterparty map design**, in `docs/import-workflow.md`: per-source variants,
+- [x] T-04c: **The counterparty map design**, in `docs/import-workflow.md`: per-source variants,
       `internal:<account>` or `expense:<category>` destinations, asked once during review and
       remembered, never defaulted. Categories to add: `Expenses:ServiciosPersonales` and
       `Expenses:AyudaFamiliar`, with assignment to an existing category allowed when that is what
@@ -531,7 +531,9 @@ market rate. Confirm the exact presentation against a real statement before enco
       not silently split the ledger across two directories), so on a fresh machine the first
       documented command fails with `refused: ledger-dir: ... does not exist` until the user runs
       `mkdir -p` himself. The tool behaviour is right and its message names the fix; the document
-      is what is incomplete. Found by running the quick path instead of reading it.
+      is what is incomplete. Found by running the quick path instead of reading it. **Closed
+      2026-09-25** — native review `review-83a9010a1ddd5288` approved with **no correction** (medium
+      tier, one lens, 239 changed lines), commits `aea5ce0`, `3624fd9`. See *T-04c delivered* below.
 - [ ] T-05: **Mercado Pago importer — UNBLOCKED, format confirmed against two real files.**
       Parses `Resumen de cuenta en pesos` (one PDF per person per month) into beancount
       transactions, with the five reconciliation checks as a **hard gate**: it must refuse to
@@ -928,20 +930,79 @@ open, which is exactly the window in which this project does not commit. Recorde
 hardened, because hardening it would mean either teaching the guard about a tool's directory
 layout or deleting another tool's state by hand.
 
+### T-04c delivered (2026-09-25) — the boundary is the ledger, not the family
+
+`docs/import-workflow.md` gains the counterparty-map contract in place of the gap it used to
+declare: the key is `(source, raw_name)` exactly as the statement spells it, case-sensitive,
+because the same person reads `APELLIDO NOMBRE J` at Provincia, `Nombre Apellido` at BBVA and a
+first name at Mercado Pago; the destination is `internal:<account>` for a counterparty **this
+ledger holds** and `expense:<category>` for money leaving for good; the map is append-only and the
+last row for a key wins, so a correction is one appended row. Nothing is ever defaulted — there is
+no holding account and no fallback to `Expenses:Otros`, an unclassified name stops the import — and
+the document states **in bold that the refusal path and its message shape are a contract T-05
+implements, not behaviour that exists today**, because `CounterpartyMap` stores and resolves rows
+and nothing calls it from `extract` yet. That disclaimer is the difference between a design and a
+false claim of working code.
+
+`docs/accounting-model.md` gains `Expenses:ServiciosPersonales` and `Expenses:AyudaFamiliar`, and the
+sample exercises both with one transaction each. Commits `aea5ce0` (model, sample, tests) and
+`3624fd9` (the workflow contract and the quick-path fix).
+
+#### The contradiction that had to be resolved, not tolerated
+
+The model document said `Expenses:Familia` was **deliberately absent** because transfers to family
+members are internal. T-04c asks for `Expenses:AyudaFamiliar`. Read carelessly those are opposites,
+and the failure mode of leaving both standing is a reader who cannot tell which rule governs. The
+resolution is now written down: **the boundary is the ledger, not the family relationship.** A
+transfer into a family member's account that is *in the ledger* (P3's) stays `internal:` and is
+never spending; support to a relative with **no account here** leaves the household for good and is
+spending. The same surname can land on either side, and only the ledger decides which. The category
+stays coarse on purpose: per-person categories would put real names into a public document.
+
+#### What the parent's verification changed before the review
+
+- **The pinned total's arithmetic did not add up as written.** The comment listed the previous
+total *and* its components as if they were addends: 773500 + 45000 + 720000 + 8500 + 25000 + 40000
+is not 838500. The value was right and the justification was wrong, which is the worse half — a
+reader who checks it and finds it broken stops trusting the pinned number that catches double
+counting. Rewritten as the components' sum, with the delta to the old total named separately.
+- **A sentence about tags had become a trap.** The model document said the sample deliberately does
+not exercise tags; the sample has carried structural markers (`#card-purchase`, `#installments`,
+`#transfer-to-p3`) since T-02, and T-04c added two more. The claim now distinguishes the sample's
+**scenario markers** from an **occasion tag** (`#brasil-2026`), which is the thing an importer
+never emits.
+- **The delegated handoff was truncated** — the worker's last turn was consumed arguing about the
+review lifecycle and its report arrived without the RED evidence, the arithmetic, or the
+contradiction quotes it was asked for. Everything above was re-derived by the parent:
+**five mutation probes, all killed** — remove either new transaction, remove the
+`Expenses:ServiciosPersonales` open directive, mis-categorise the service payment, or route it
+through the clearing account, and the suite fails in each case. The pinned total was recomputed
+independently (838500.00 ARS / 45.00 USD) and the clearing account still nets to exactly zero.
+
+#### Native review of T-04c — approved on the first admitted event
+
+Lineage `review-83a9010a1ddd5288`, tier **medium**, one lens (`review-reliability`), 5 changed
+paths, 239 original changed lines, `correction_budget` 120 — **unused**: no BLOCKER or CRITICAL was
+found, so no refuter, no correction and no targeted validator were needed. Acknowledgement
+`gentle-ai.review-acknowledged/v1`, `authority: "burned"`.
+
+**Two advisory findings, both non-blocking and neither reopening this review** — separate later
+work: `R3-001` (WARNING, `tests/test_family_model.py:54`) and `R3-002` (SUGGESTION,
+`docs/import-workflow.md:264`).
+
 ## Next step
 
-1. Reconnaissance **closed for all four sources** (nine files, no OCR). The transfer design is
-   **decided** (clearing account) and applied to the model, the sample and the tests. T-01,
-   T-01b (the leak guard), T-04a and **T-04b** are **closed**.
-2. **T-04c** next — the counterparty map design in `docs/import-workflow.md` plus the two new
-   categories (`Expenses:ServiciosPersonales`, `Expenses:AyudaFamiliar`) in the model, the sample
-   and their tests. It is small, it is documentation-heavy, and T-04b left the section as an
-   explicit named gap so nothing has to be inferred from the doc.
-3. Then **T-05, the Mercado Pago importer** — the first real importer, and the one that turns this
-   contract into a working pipeline. The reconciliation checks are the acceptance gate; the
-   clearing account is the transfer shape; `get_importers()` in `src/expensuchis/importers.py` is
-   the single registration point it has to fill.
-4. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
+1. Reconnaissance **closed for all four sources** (nine files, no OCR). T-01, T-01b, T-02, T-04a,
+   T-04b and **T-04c** are closed.
+2. **T-05, the Mercado Pago importer, is next and is the whole point of the last three tasks.**
+   It parses `Resumen de cuenta en pesos` (one real PDF per person per month, format confirmed
+   against two real files) into beancount transactions, with the five reconciliation checks as a
+   **hard gate** it refuses to emit past, registers itself in `get_importers()`, and implements the
+   counterparty-map refusal whose message shape T-04c pinned. It is the first importer, so it is
+   also where the contract stops being a document and starts being a pipeline.
+3. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
    first real month is ingested.
+4. **T-01c** (`ruff format` drift across nine files) remains open and deliberately untouched: it is
+   a cosmetic diff across guarded files and belongs in its own reviewed unit.
 5. Still open: whether Mercado Pago issues a `RESUMEN DE CUENTA EN DÓLARES`, and whether it has a
    card statement separate from the account statement.
