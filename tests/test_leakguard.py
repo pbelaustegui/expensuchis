@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -25,6 +27,7 @@ from expensuchis.leakguard import (
     INDEX_FILENAME,
     GuardStatus,
     build_index,
+    derived_legitimate_numbers,
     evaluate,
     extract_tokens,
     load_baseline,
@@ -90,9 +93,11 @@ def test_extract_tokens_normalises_grouping_and_length() -> None:
 
 
 def test_extract_tokens_is_case_folded_and_handles_accents() -> None:
-    tokens = extract_tokens("CRÉDITO Credito")
-    assert "crédito" in tokens
-    assert "credito" in tokens
+    # Invented words on purpose: a real accented statement token here would have to
+    # be baselined just to keep the repository clean under its own guard.
+    tokens = extract_tokens("ZÚRTANO Zurtano")
+    assert "zúrtano" in tokens
+    assert "zurtano" in tokens
 
 
 def test_statement_files_skips_download_metadata_and_dotfiles(ledger: Path) -> None:
@@ -108,7 +113,7 @@ def test_truncated_and_recased_statement_phrase_is_caught(ledger: Path) -> None:
     source, _ = _text_source()
 
     result = evaluate(
-        {"notes.md": "cliente de Energia Ficticia"},
+        {"notes.md": "zafrante de Energia Ficticia"},
         source=source,
         ledger_root=ledger,
     )
@@ -128,7 +133,7 @@ def test_a_single_word_name_is_caught(ledger: Path) -> None:
 
 
 def test_a_decimal_less_amount_is_caught(ledger: Path) -> None:
-    _statement(ledger, "resumen.pdf", "Total a pagar 123,456")
+    _statement(ledger, "resumen.pdf", "Total a pagorrar 123,456")
     source, _ = _text_source()
 
     result = evaluate({"notes.md": "the sum was 123456"}, source=source, ledger_root=ledger)
@@ -166,7 +171,7 @@ def test_a_new_intersection_fails_and_clears_only_when_baselined(ledger: Path) -
 
 
 def test_finding_names_the_token_the_file_and_the_statement(ledger: Path) -> None:
-    _statement(ledger, "Bbva/agosto.pdf", "PROVEEDORINVENTADO")
+    _statement(ledger, "Bbva/fictimbre.pdf", "PROVEEDORINVENTADO")
     source, _ = _text_source()
 
     result = evaluate({"odd/tasks/x.md": "ProveedorInventado"}, source=source, ledger_root=ledger)
@@ -174,7 +179,7 @@ def test_finding_names_the_token_the_file_and_the_statement(ledger: Path) -> Non
     (finding,) = result.findings
     assert finding.token == "proveedorinventado"
     assert finding.file == "odd/tasks/x.md"
-    assert finding.statements == ("statements/Bbva/agosto.pdf",)
+    assert finding.statements == ("statements/Bbva/fictimbre.pdf",)
 
 
 def test_scan_reports_one_finding_per_file_but_not_per_occurrence(ledger: Path) -> None:
@@ -252,15 +257,21 @@ def test_absent_ledger_directory_allows_the_commit_with_a_clear_message(
     assert EXIT_CODES[GuardStatus.CANNOT_RUN.value] == 0
 
 
-def test_ledger_path_that_does_not_exist_also_counts_as_absent(
+def test_ledger_path_set_but_missing_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A typo must not silently disable the guard.
+
+    An unset variable is CANNOT_RUN so CI and fresh clones keep working, but a
+    *set* path that does not exist is a typo and is UNREADABLE (exit 2).
+    """
     monkeypatch.setenv(ENV_VAR, str(tmp_path / "not-created"))
 
     result = evaluate({"notes.md": "anything at all"})
 
-    assert result.status is GuardStatus.CANNOT_RUN
+    assert result.status is GuardStatus.UNREADABLE
     assert "does not exist" in result.message
+    assert EXIT_CODES[GuardStatus.UNREADABLE.value] == 2
 
 
 def test_configured_ledger_without_a_statements_directory_fails_closed(tmp_path: Path) -> None:
@@ -329,3 +340,206 @@ def test_pdfium_text_reads_a_synthetic_text_layer_pdf(tmp_path: Path) -> None:
 
     assert "InventadoPersona" in text
     assert extract_tokens(text) >= {"inventadopersona", "123456"}
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_baseline_reasons_after_hash_are_ignored(ledger: Path) -> None:
+    (ledger / BASELINE_FILENAME).write_text(
+        "cuenta  # generic banking vocabulary\n"
+        "# a whole-line comment\n"
+        "saldo\n",
+        encoding="utf-8",
+    )
+
+    assert load_baseline(ledger) == {"cuenta", "saldo"}
+
+
+def test_a_numeric_token_below_six_digits_is_not_flagged(ledger: Path) -> None:
+    _statement(ledger, "resumen.pdf", "12345")
+    source, _ = _text_source()
+
+    result = evaluate({"notes.md": "12345"}, source=source, ledger_root=ledger)
+
+    assert result.status is GuardStatus.CLEAN
+
+
+def test_derived_legitimate_numbers_are_read_from_the_repository(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "sample").mkdir(parents=True)
+    (repo / "docs").mkdir(parents=True)
+    (repo / "uv.lock").write_text("version = 999999\n", encoding="utf-8")
+    (repo / "sample" / "model.beancount").write_text("10,000,000.00 ARS\n", encoding="utf-8")
+    (repo / "docs" / "model.md").write_text("a 25,000,000.00 example\n", encoding="utf-8")
+
+    numbers = derived_legitimate_numbers(repo)
+
+    assert {"999999", "1000000000", "2500000000"} <= numbers
+
+
+def test_numbers_from_uv_lock_sample_and_docs_are_not_flagged(tmp_path: Path) -> None:
+    ledger = tmp_path / "ledger"
+    (ledger / "statements").mkdir(parents=True)
+    _statement(ledger, "resumen.pdf", "irrelevant because the source below is injected")
+    repo = tmp_path / "repo"
+    (repo / "sample").mkdir(parents=True)
+    (repo / "docs").mkdir(parents=True)
+    (repo / "uv.lock").write_text("version = 999999\n", encoding="utf-8")
+    (repo / "sample" / "model.beancount").write_text("10,000,000.00 ARS\n", encoding="utf-8")
+    (repo / "docs" / "model.md").write_text("a 25,000,000.00 example\n", encoding="utf-8")
+
+    def source(path: Path) -> str:
+        return "999999 1000000000 2500000000 888888"
+
+    result = evaluate(
+        {"notes.md": "999999 1000000000 2500000000 888888"},
+        source=source,
+        ledger_root=ledger,
+        repo_root=repo,
+    )
+
+    assert result.status is GuardStatus.LEAK
+    assert {finding.token for finding in result.findings} == {"888888"}
+
+
+# --- Hook integration -------------------------------------------------------------------
+#
+# The commit-message scan is exercised through the real `.githooks/commit-msg`
+# invocation form (message file as ``$1``), not a direct module call, because that
+# is the integration that was broken. A fake ``uv`` forwards to this interpreter so
+# the hook's real dispatch is tested without a nested ``uv`` run.
+
+
+def _write_executable(path: Path, body: str) -> Path:
+    path.write_text(body, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _forwarding_uv() -> str:
+    return f'#!/usr/bin/env bash\nset -u\nexec "{sys.executable}" "${{@:3}}"\n'
+
+
+def _seeded_ledger_with_unreadable_baseline(ledger: Path) -> None:
+    """Seed a valid index, then make the reviewed baseline unreadable so the guard crashes.
+
+    ``load_baseline`` reads ``leakguard-baseline.txt`` with no exception handling,
+    so a directory at that path raises ``IsADirectoryError``. That exception
+    propagates out of ``main`` and the module's ``__main__`` handler turns it into
+    exit 3. The crash is produced by the real module, not by a fake exit code.
+    """
+    _seeded_ledger(ledger)
+    (ledger / BASELINE_FILENAME).mkdir()
+
+
+def _hook_environment(tmp_path: Path, ledger: Path, uv_body: str) -> dict[str, str]:
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    _write_executable(bindir / "uv", uv_body)
+    env = dict(os.environ)
+    env["PATH"] = f"{bindir}{os.pathsep}{env.get('PATH', '')}"
+    env[ENV_VAR] = str(ledger)
+    return env
+
+
+def _scratch_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "scratch"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    return repo
+
+
+def _hook(name: str) -> Path:
+    return _REPO_ROOT / ".githooks" / name
+
+
+def _seeded_ledger(ledger: Path) -> None:
+    _statement(ledger, "resumen.pdf", "placeholder read from the seeded index")
+    build_index(ledger, source=lambda path: "PROVEEDORINVENTADO", force=True)
+
+
+def test_commit_msg_hook_blocks_a_statement_token_in_the_message(
+    tmp_path: Path, ledger: Path
+) -> None:
+    _seeded_ledger(ledger)
+    message = tmp_path / "COMMIT_EDITMSG"
+    message.write_text("note: counterparty ProveedorInventado confirmed\n", encoding="utf-8")
+    env = _hook_environment(tmp_path, ledger, _forwarding_uv())
+
+    completed = subprocess.run(
+        [str(_hook("commit-msg")), str(message)],
+        cwd=_scratch_repo(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1, completed.stderr
+    assert "leaked into the commit message" in completed.stderr
+
+
+def test_commit_msg_hook_allows_a_benign_message(tmp_path: Path, ledger: Path) -> None:
+    _seeded_ledger(ledger)
+    message = tmp_path / "COMMIT_EDITMSG"
+    message.write_text("chore: tidy the fixtures\n", encoding="utf-8")
+    env = _hook_environment(tmp_path, ledger, _forwarding_uv())
+
+    completed = subprocess.run(
+        [str(_hook("commit-msg")), str(message)],
+        cwd=_scratch_repo(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_commit_msg_hook_fails_closed_without_a_message_file(
+    tmp_path: Path, ledger: Path
+) -> None:
+    env = _hook_environment(tmp_path, ledger, _forwarding_uv())
+
+    completed = subprocess.run(
+        [str(_hook("commit-msg"))],
+        cwd=_scratch_repo(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "no readable commit-message file" in completed.stderr
+
+
+def test_pre_commit_hook_reports_a_leakguard_crash_as_a_crash(
+    tmp_path: Path, ledger: Path
+) -> None:
+    """Exercise the real crash-to-3 path in ``leakguard.__main__``.
+
+    The forwarding ``uv`` runs the real module. The ledger index is seeded so it
+    loads from cache, then the baseline path is made a directory, which makes
+    ``load_baseline`` raise ``IsADirectoryError``. The hook must report exit 3 as a
+    crash and must not call it a leak. A fake ``uv`` that hard-codes 3 is not used,
+    because that would leave the module's crash handler with zero coverage.
+    """
+    _seeded_ledger_with_unreadable_baseline(ledger)
+    env = _hook_environment(tmp_path, ledger, _forwarding_uv())
+
+    completed = subprocess.run(
+        [str(_hook("pre-commit"))],
+        cwd=_scratch_repo(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1, completed.stderr
+    assert "CRASHED" in completed.stderr
+    assert "crashed" in completed.stderr.lower()
+    assert "leaked" not in completed.stderr.lower()

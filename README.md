@@ -47,6 +47,9 @@ name, or a file inside an excluded directory (`.venv/`, `__pycache__/`, …) all
 The structural mitigations are what actually hold: the ledger and every statement
 never live inside this tree (guard #1), and this check is enforced in CI on every
 push and pull request, so a bad file cannot reach the default branch by being merged.
+Guard #2 walks `.git` only for its `gentle-ai/` tooling cache — the `candidate-views/`
+plain-text copies that were the third place the original leak appeared — and leaves
+the rest of `.git` (the object store) excluded.
 
 `sample/smoke.beancount` is a tiny synthetic ledger used only by the smoke test; it
 is not the account model. The account model itself lives in
@@ -74,18 +77,34 @@ uv run ruff check .                                        # lint
 To validate the real ledger, point `bean-check` at it through the environment variable
 without ever copying it into this repository.
 
-## Local pre-commit hook (opt-in)
+## Local commit hooks (active)
 
-CI is the enforcement of record, but you can also catch a stray data file before it is
-committed. The hook lives at `.githooks/pre-commit` and is **not activated by default**;
-turn it on yourself from the repository root:
+CI is the enforcement of record, but the local hooks catch a problem before it is
+committed. They are **active in this repository**: `core.hooksPath` is set to
+`.githooks`, so git runs both hook files:
+
+* `.githooks/pre-commit` runs privacy guard #2 (data-bearing files) and privacy
+  guard #3 (`expensuchis.leakguard`) over the staged content.
+* `.githooks/commit-msg` runs privacy guard #3 over the commit message, because a
+  commit message is permanent and the pre-commit hook never receives it.
+
+Activate the same hooks in any clone, from its repository root:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-The hook runs the same scan and refuses the commit when it finds offenders. It does not
-need an activated virtualenv: it uses `uv` when available and falls back to
-`PYTHONPATH=src python3 -m expensuchis.privacy`. You can bypass it with
-`git commit --no-verify`, but CI cannot be bypassed that way, so a bypassed offender
-still fails on push/PR.
+The hooks do not need an activated virtualenv: they use `uv` when available and fall
+back to `PYTHONPATH=src python3 -m expensuchis.privacy` / `... expensuchis.leakguard`.
+The privacy guard exits 1 for data-bearing files and 3 for a crash; the leak guard
+exits 1 for a leaked token, 2 for a configured-but-unusable ledger, and 3 for a crash,
+so a crash is never reported as a leak.
+
+**`git commit --no-verify` skips both hooks and is not policed for the leak guard.**
+For privacy guard #2 it only defers detection: `pytest` re-runs the same scan in CI,
+so a bypassed data file still fails on push/PR. **The leak guard is different and is
+local-only by nature.** CI runs only `bean-check`, `pytest` and `ruff`, has no ledger,
+and never invokes `expensuchis.leakguard`, so there is no CI backstop and `--no-verify`
+evades it completely. A token leaked by a bypassed commit is caught only when a human
+re-scans with `python -m expensuchis.leakguard --tree`. The bypass is unpoliced, not
+deferred.

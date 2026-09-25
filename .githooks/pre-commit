@@ -1,24 +1,32 @@
 #!/usr/bin/env bash
 #
-# Opt-in pre-commit hook. It runs two independent guards:
+# Active pre-commit hook. It runs two independent guards:
 #
 #   * privacy guard #2  (`expensuchis.privacy`)  — refuses data-bearing FILES
 #     (statements, ledgers, exports) inside this public repository.
 #   * privacy guard #3  (`expensuchis.leakguard`) — refuses repository CONTENT
 #     that repeats a token from the private statements (see leakguard.py).
 #
-# Activate it once, from the repository root:
+# It is active in this repository: `core.hooksPath` is set to `.githooks`, so git
+# runs both this file and `.githooks/commit-msg` (which scans the commit message
+# that this hook never sees). Activate it the same way in any clone:
 #
 #     git config core.hooksPath .githooks
 #
 # It runs the package without requiring an activated virtualenv: it uses `uv`
 # when available and falls back to `PYTHONPATH=src python3`. If neither can run
-# the scans it fails closed. The hook is bypassable with `git commit --no-verify`;
-# CI is not.
+# the scans it fails closed.
 #
-# Leak-guard exit codes: 0 for a clean run or an absent ledger directory (a fresh
-# clone or CI has no statements, and the repository must stay usable without
-# them), 1 for a leaked token, 2 for a configured-but-unusable ledger. Only 0
+# `git commit --no-verify` skips BOTH this hook and `.githooks/commit-msg`,
+# and CI has no ledger and never runs the leak guard. So a bypassed leak-guard
+# offender is never caught automatically; the leak guard is local-only by nature
+# and has no CI backstop. Privacy guard #2 is re-run by pytest in CI, so for that
+# guard `--no-verify` only defers detection; for the leak guard it is unpoliced.
+#
+# Exit codes -- privacy guard: 0 clean, 1 data-bearing files, 3 crash.
+# Leak guard: 0 for a clean run or an unset ledger directory (a fresh clone or CI
+# has no statements, and the repository must stay usable without them), 1 for a
+# leaked token, 2 for a configured-but-unusable ledger, 3 for a crash. Only 0
 # allows the commit.
 set -u
 
@@ -46,6 +54,8 @@ fi
 if [ "$privacy_status" -eq 1 ]; then
     echo "privacy pre-commit: data-bearing files found above; refusing commit." >&2
     echo "Move them outside this public repository, or bypass with 'git commit --no-verify'." >&2
+elif [ "$privacy_status" -eq 3 ]; then
+    echo "privacy pre-commit: the privacy guard CRASHED (exit 3); refusing commit." >&2
 elif [ "$privacy_status" -ne 0 ]; then
     echo "privacy pre-commit: the privacy scan could not run (exit $privacy_status); refusing commit." >&2
 fi
@@ -53,6 +63,8 @@ fi
 if [ "$leak_status" -eq 1 ]; then
     echo "leakguard pre-commit: statement tokens leaked into the repository; refusing commit." >&2
     echo "Remove them, or review and add a generic token to the baseline deliberately." >&2
+elif [ "$leak_status" -eq 3 ]; then
+    echo "leakguard pre-commit: the leak guard CRASHED (exit 3); refusing commit." >&2
 elif [ "$leak_status" -ne 0 ]; then
     echo "leakguard pre-commit: the leak guard could not verify the repository (exit $leak_status); refusing commit." >&2
 fi

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# Active commit-msg hook. Git hands this hook one argument: the path of the file
+# that holds the proposed commit message. A commit message is permanent, and the
+# pre-commit hook never sees it (git passes no message argument there), so the
+# message is scanned here by privacy guard #3 (`expensuchis.leakguard`).
+#
+# Activate it together with the pre-commit hook, from the repository root:
+#
+#     git config core.hooksPath .githooks
+#
+# It runs the package without requiring an activated virtualenv: it uses `uv`
+# when available and falls back to `PYTHONPATH=src python3`. If neither is
+# available, or the message file is missing or unreadable, it fails closed.
+#
+# Leak-guard exit codes: 0 clean, 1 leaked token, 2 configured-but-unusable
+# ledger (or unreadable message file), 3 crash. Only 0 allows the commit.
+set -u
+
+if [ "$#" -lt 1 ] || [ ! -f "$1" ]; then
+    echo "leakguard commit-msg: no readable commit-message file was passed; refusing commit." >&2
+    exit 2
+fi
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+
+if command -v uv >/dev/null 2>&1; then
+    uv run python -m expensuchis.leakguard --message-file "$1"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHONPATH=src python3 -m expensuchis.leakguard --message-file "$1"
+else
+    echo "leakguard commit-msg: neither 'uv' nor 'python3' is available; refusing commit." >&2
+    exit 2
+fi
+status=$?
+
+if [ "$status" -eq 0 ]; then
+    exit 0
+fi
+
+case "$status" in
+    1)
+        echo "leakguard commit-msg: statement tokens leaked into the commit message; refusing commit." >&2
+        echo "Remove them, or review and add a genuinely generic token to the baseline deliberately." >&2
+        ;;
+    3)
+        echo "leakguard commit-msg: the leak guard CRASHED (exit 3); refusing commit." >&2
+        ;;
+    *)
+        echo "leakguard commit-msg: the leak guard could not verify the commit message (exit $status); refusing commit." >&2
+        ;;
+esac
+
+exit 1

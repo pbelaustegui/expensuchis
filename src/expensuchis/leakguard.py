@@ -12,58 +12,151 @@ was the source text truncated, recased and reformatted, so the phrases were long
 than the leaks and matched nothing. What works is the inverse: take every token
 from the statements and look for those tokens in repository content.
 
-**No stoplist.** A second helper had a hand-written stoplist of tokens to skip, and
-it masked real data: it hid two of the three service providers named in the tracker
-while a third slipped through. This guard has no stoplist. It has a **reviewed
-baseline** instead, and the difference is deliberate:
+**A reviewed stop-list — not "no stop-list".** A second helper had a hand-written
+stoplist of tokens to skip, and it masked real data: it hid two of the three
+service providers named in the tracker while a third slipped through. This guard's
+baseline **is** a stop-list in the mechanical sense: every token in it is skipped.
+The honest description is a **reviewed, minimal, load-bearing stop-list**, and the
+difference from that hand-written list is real rather than rhetorical:
 
-* the baseline is **derived from a reviewed sweep** — it is what the intersection
-  actually contained after the leak was understood, not a guess written in advance;
+* it is **derived from a reviewed sweep** — it is what the intersection actually
+  contained after the leak was understood, not a guess written in advance;
 * it **lives with the data**, in the ledger directory, next to the statements it
   came from, never in the repository it protects;
-* it is **meant to be small**; and
-* **every addition is a deliberate act** with a reason in the review record.
+* it is **meant to be small** — with an empty baseline the guard flags exactly the
+  72 tokens the current file skips, and each of those was verified as necessary;
+* **no entry masks a private identifier** — each is a generic word the repository
+  itself uses (``supermercado``, ``seguros``, …), not a name or account number;
+* **every addition is a deliberate act** with a reason recorded inline next to the
+  entry; and
+* **every numeric entry is derived, not listed** (see the numeric rule below).
 
-A hand-written stoplist grows silently and hides things; a reviewed baseline is
-small, lives with the data, and each line is something a human decided to ignore.
+A hand-written stoplist grows silently and hides things; this reviewed stop-list is
+small, lives with the data, and each line is something a human decided to ignore,
+with the reason written beside it. Calling it "no stoplist" would be rhetoric that
+overstates the mechanism: the guard skips tokens, and the honesty is in *which*
+tokens and *why*, not in a claim that nothing is skipped.
+
+What the guard catches, and what it does not
+--------------------------------------------
+
+The guard catches **distinctive tokens** — names, account numbers and distinctive
+amounts — that appear verbatim in the statements and are reproduced in repository
+content. It is a token guard, not a data-loss-prevention system. The following are
+known to evade it and are recorded here rather than left implied:
+
+* an identifier **split across two lines or across two files** — the token never
+  appears whole;
+* a **zero-width or lookalike character** inserted inside a name — the token is no
+  longer byte-equal;
+* an identifier in a **filename** rather than in file content — only content is
+  scanned, never path names;
+* **base64** (or any other encoding) of an identifier;
+* an amount written with a **space as the thousands separator** (``13 000,00``):
+  the numeric check does not join numbers across whitespace, so it sees only short
+  fragments;
+* the **finding output prints the source statement path**, and where that path
+  contains the account holder's name — one real statement filename does — the
+  output is not safe to paste into a public log;
+* a statement that parses to **empty text** (a scanned statement with no text
+  layer, for example): it contributes no tokens and is silently ignored. The guard
+  fails closed only when *every* statement is empty, not when one of them is;
+* a leak phrased as a **single generic domain word**. This repository's category
+  tree and tracker use the statements' own vocabulary (``Supermercado``,
+  ``Seguros``, ``Sueldo``, …), so those words cannot be flagged without flagging
+  the repository itself; they are reviewed baseline entries instead. **A leak
+  phrased as a single generic domain word is undetectable by a token guard, and
+  this is what the guard does not protect.**
+
+The git **author identity** is public by design and is out of scope for this guard.
 
 Token rules
 -----------
 
-Every alphabetic token of five or more characters, lowercased, plus **every**
-numeric token, normalised by stripping ``.`` and ``,`` so ``123,456`` and
-``123456`` are the same token. Amounts without decimals matter as much as amounts
-with them; matching only ``1,234.56``-shaped numbers was one of the three reasons
-the first sweep missed the leak.
+Every alphabetic token of five or more characters, lowercased. Numeric tokens are
+normalised by stripping ``.`` and ``,`` so ``123,456`` and ``123456`` are the same
+token. **Only numeric tokens of six or more digits are checked at all**, and the
+legitimate numbers of this repository are **derived at scan time**, never listed by
+hand (below). Amounts without decimals matter as much as amounts with them;
+matching only ``1,234.56``-shaped numbers was one of the three reasons the first
+sweep missed the leak.
+
+Derived numeric rule, and its documented consequence
+----------------------------------------------------
+
+The guard carries no hand-listed numeric baseline. The numbers that legitimately
+live in this repository are those found in ``uv.lock`` (dependency versions and
+hashes) and under ``sample/`` and ``docs/``, computed at scan time. Any other
+numeric token of six or more digits that appears both in a statement and in
+repository content is a finding.
+
+``docs/`` is included because its worked-example amounts are required to mirror the
+synthetic ledger in ``sample/``. That is the intent, not the mechanism: the
+implementation exempts **every** number in ``uv.lock``, ``sample/`` and ``docs/``
+**unconditionally**, whether or not it mirrors anything. It is therefore not a
+neutral exemption but a **blanket numeric blind spot**: **a real amount becomes
+legitimate the moment it is saved into one of those three places**, exactly as if
+it had been added to the baseline. ``odd/`` — the tracker, where the original leak
+happened — and every other path are still checked, and **a new six-or-more-digit
+amount in a new place fails**, which is the intent. Numbers below six digits are
+not checked at all, so the numeric rule is a *delta* check, weaker than it first
+reads. The clean message reports both the total number of derived numbers and how
+many are actually checkable (six digits or more); the rest can never be flagged.
 
 Where state lives
 -----------------
 
 The token index and its cache metadata, and the reviewed baseline, live **only in
 the ledger directory** (:data:`INDEX_FILENAME`, :data:`BASELINE_FILENAME`). They
-are never written inside the repository. The cache is keyed on the statements'
-paths, sizes and modification times, so a commit does not re-read every PDF;
-:func:`build_index` with ``force=True``, or ``--rebuild-index`` on the command
-line, rebuilds it.
+are never written inside the repository. The baseline is one token per line;
+``#`` starts a comment and a reason may follow the token on the same line. The
+cache is keyed on the statements' paths, sizes and modification times, so a commit
+does not re-read every PDF; :func:`build_index` with ``force=True``, or
+``--rebuild-index`` on the command line, rebuilds it.
 
 Fail-closed contract
 --------------------
 
-* **Ledger directory absent entirely** — ``EXPENSUCHIS_LEDGER_DIR`` unset, or
-  pointing at a path that does not exist — a fresh clone or CI. The guard
-  **reports that it cannot run and lets the commit proceed**, because the
-  repository must stay usable without the private data (:attr:`GuardStatus.CANNOT_RUN`,
-  exit 0).
-* **Ledger directory configured but unusable** — exists yet its ``statements``
-  directory is missing, empty, or a statement cannot be read. The guard **fails
-  closed**: it reports the problem and refuses (:attr:`GuardStatus.UNREADABLE`,
-  exit 2). It does not pass silently.
+* **Ledger directory unset** — ``EXPENSUCHIS_LEDGER_DIR`` is not set: a fresh clone
+  or CI. The guard **reports that it cannot run and lets the commit proceed**
+  (:attr:`GuardStatus.CANNOT_RUN`, exit 0), because the repository must stay usable
+  without the private data.
+* **Ledger directory set but missing or unusable** — the variable is set, but its
+  path does not exist, is a file rather than a directory, lies inside a repository,
+  or has no readable ``statements`` directory; or a statement cannot be read. The
+  guard **fails closed** (:attr:`GuardStatus.UNREADABLE`, exit 2). It does not pass
+  silently. A **typo must not silently disable a safety control**, which is why a
+  set-but-missing path is unreadable while an unset variable is not.
 * **Intersection with a non-baseline token** — :attr:`GuardStatus.LEAK`, exit 1.
   The offending token is printed so the user can fix it, together with the
   repository file it appeared in and the statement file it came from.
+* **The guard itself crashes** — exit 3, deliberately distinct from ``LEAK`` (1)
+  so that a crash is never reported as a leaked token.
 
-The two absent-vs-unusable outcomes are deliberately different and are stated in
-the output as well as here.
+The absent-vs-unusable outcomes are deliberately different and are stated in the
+output as well as here.
+
+Commit messages
+---------------
+
+A commit message is permanent, and the pre-commit hook never sees it: git passes
+**no** message argument to ``pre-commit``. The guard therefore accepts
+``--message-file PATH``, which folds the message into the scanned text, and the
+``.githooks/commit-msg`` hook invokes it with git's message-file argument. If the
+message file is missing or unreadable the guard fails closed
+(:attr:`GuardStatus.UNREADABLE`), rather than skipping the message silently.
+
+Where this guard runs, and the bypass it does not close
+-------------------------------------------------------
+
+This guard runs from the local hooks only. CI runs ``bean-check``, ``pytest`` and
+``ruff``, and ``pytest`` re-runs privacy guard #2; it never runs the leak guard,
+because CI has no ledger. There is therefore **no CI backstop** for this guard.
+``git commit --no-verify`` skips both ``.githooks/pre-commit`` and
+``.githooks/commit-msg`` and fully evades it: a leaked token committed that way is
+caught only when a human runs ``--tree`` (or when a later non-bypassed commit scans
+the same content). This guard is **local-only by nature**, and the bypass is
+**unpoliced**, not deferred to CI.
 
 Token source seam
 -----------------
@@ -78,6 +171,13 @@ tracked tree::
 
     python -m expensuchis.leakguard
     python -m expensuchis.leakguard --tree
+    python -m expensuchis.leakguard --message-file .git/COMMIT_EDITMSG
+
+:func:`staged_texts` lists only added/copied/modified/renamed paths
+(``--diff-filter=ACMR``), so a token that was committed while the guard could not
+run is **not** re-examined by a later commit. Run ``--tree`` periodically to
+re-scan everything that is tracked; that is the recommended workflow, not an
+optional extra.
 """
 
 from __future__ import annotations
@@ -106,6 +206,7 @@ __all__ = [
     "StatementsUnreadable",
     "TokenIndex",
     "build_index",
+    "derived_legitimate_numbers",
     "evaluate",
     "extract_tokens",
     "load_baseline",
@@ -119,11 +220,20 @@ INDEX_FILENAME = "leakguard-index.json"
 BASELINE_FILENAME = "leakguard-baseline.txt"
 
 MIN_ALPHA_TOKEN_LENGTH = 5
+MIN_NUMERIC_TOKEN_LENGTH = 6
+
+#: Repository files whose numbers are legitimate by construction: dependency
+#: metadata. See :func:`derived_legitimate_numbers`.
+DERIVED_NUMBER_FILES = ("uv.lock",)
+
+#: Repository directories whose numbers are legitimate by construction: the
+#: synthetic ledger and the design documents that mirror it.
+DERIVED_NUMBER_DIRS = ("sample", "docs")
 
 _LETTERS = re.compile(r"[^\W\d_]+", re.UNICODE)
 _NUMBERS = re.compile(r"\d[\d.,]*\d|\d")
 
-_EXIT_CODES = {"clean": 0, "leak": 1, "cannot_run": 0, "unreadable": 2}
+_EXIT_CODES = {"clean": 0, "leak": 1, "cannot_run": 0, "unreadable": 2, "crash": 3}
 
 
 class LeakguardError(Exception):
@@ -144,10 +254,10 @@ class GuardStatus(Enum):
     """A non-baseline statement token appeared in repository content."""
 
     CANNOT_RUN = "cannot_run"
-    """The ledger is absent; the commit proceeds because the repo must work without it."""
+    """The ledger is unset; the commit proceeds because the repo must work without it."""
 
     UNREADABLE = "unreadable"
-    """The ledger is configured but unusable; the guard refuses to pass silently."""
+    """The ledger is configured but missing or unusable; the guard refuses to pass silently."""
 
 
 EXIT_CODES = _EXIT_CODES
@@ -177,7 +287,8 @@ def extract_tokens(text: str) -> set[str]:
 
     Alphabetic runs are lowercased and kept only at length
     :data:`MIN_ALPHA_TOKEN_LENGTH` or more. Numeric runs are normalised by
-    stripping ``.`` and ``,`` so grouping is irrelevant to the comparison.
+    stripping ``.`` and ``,`` so grouping is irrelevant to the comparison. This
+    function extracts; :func:`scan` decides which extracted tokens are checked.
     """
     tokens: set[str] = set()
     for match in _LETTERS.finditer(text):
@@ -187,6 +298,39 @@ def extract_tokens(text: str) -> set[str]:
     for match in _NUMBERS.finditer(text):
         tokens.add(match.group().replace(".", "").replace(",", ""))
     return tokens
+
+
+def derived_legitimate_numbers(root: Path) -> set[str]:
+    """Return the numbers that legitimately live in the repository at ``root``.
+
+    Read at scan time from :data:`DERIVED_NUMBER_FILES` and
+    :data:`DERIVED_NUMBER_DIRS`. Every number in ``uv.lock``, ``sample/`` and
+    ``docs/`` is exempted **unconditionally**: the exemption does not check that a
+    number mirrors the synthetic ledger, so a real amount becomes legitimate the
+    moment it is saved into one of those places. That blanket blind spot — not a
+    neutral exemption — is documented in the module docstring and is not softened
+    here.
+
+    Only files that exist are read; a repository without ``uv.lock`` or the
+    directories yields an empty set. Numeric tokens are normalised exactly as
+    :func:`extract_tokens` normalises them.
+    """
+    candidates: list[Path] = [root / name for name in DERIVED_NUMBER_FILES]
+    for directory in DERIVED_NUMBER_DIRS:
+        base = root / directory
+        if base.is_dir():
+            candidates.extend(sorted(path for path in base.rglob("*") if path.is_file()))
+
+    numbers: set[str] = set()
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        numbers.update(token for token in extract_tokens(text) if token.isdigit())
+    return numbers
 
 
 def pdfium_text(path: Path) -> str:
@@ -328,32 +472,46 @@ def build_index(
 def load_baseline(root: Path) -> set[str]:
     """Return the reviewed benign tokens from ``root/leakguard-baseline.txt``.
 
-    The file is one token per line; blank lines and ``#`` comments are ignored. A
-    missing file means an empty baseline, so every intersection fails. The tokens
-    are lowercased on read to match the index.
+    The file is one token per line, optionally followed by ``#`` and a reason on the
+    same line; ``#`` comments the rest of the line. Blank lines are ignored. A
+    missing file means an empty baseline, so every intersection fails. Tokens are
+    lowercased on read to match the index.
     """
     path = root / BASELINE_FILENAME
     if not path.exists():
         return set()
     baseline: set[str] = set()
     for line in path.read_text(encoding="utf-8").splitlines():
-        token = line.strip()
-        if not token or token.startswith("#"):
+        token = line.split("#", 1)[0].strip()
+        if not token:
             continue
         baseline.add(token.lower())
     return baseline
 
+
+def _is_checked(token: str) -> bool:
+    """Return whether ``token`` is checked at all.
+
+    Numeric tokens below :data:`MIN_NUMERIC_TOKEN_LENGTH` digits are not checked:
+    the numeric rule is deliberately a six-digit delta check, and flagging every
+    one- or two-digit number would drown the signal.
+    """
+    return not (token.isdigit() and len(token) < MIN_NUMERIC_TOKEN_LENGTH)
 
 def scan(texts: Mapping[str, str], index: TokenIndex, baseline: set[str]) -> list[Finding]:
     """Return every non-baseline statement token found in ``texts``.
 
     ``texts`` maps a repository-relative file name to its content. A token found
     in several files yields one finding per file; a token found twice in one file
-    yields one finding.
+    yields one finding. Numeric tokens shorter than
+    :data:`MIN_NUMERIC_TOKEN_LENGTH` are ignored; ``baseline`` is expected to
+    already include the derived legitimate numbers.
     """
     findings: list[Finding] = []
     for file, text in texts.items():
         for token in extract_tokens(text):
+            if not _is_checked(token):
+                continue
             if token in baseline or token not in index.token_to_files:
                 continue
             findings.append(Finding(token, file, tuple(index.token_to_files[token])))
@@ -361,19 +519,17 @@ def scan(texts: Mapping[str, str], index: TokenIndex, baseline: set[str]) -> lis
 
 
 def _resolve_root() -> tuple[Path | None, str]:
-    """Return the ledger root, or ``(None, reason)`` when the ledger is absent.
+    """Return the ledger root, or ``(None, reason)`` when the ledger is unset.
 
-    Absent means the environment variable is unset or the path does not exist: a
-    fresh clone or CI. A configured-but-invalid ledger (inside the repository, a
-    file, an unresolvable path) raises :class:`StatementsUnreadable` instead, so
-    the guard fails closed.
+    **Unset** means ``EXPENSUCHIS_LEDGER_DIR`` is not set: a fresh clone or CI, and
+    the commit proceeds. **Set but unusable** -- the path does not exist, is a file,
+    lies inside a repository, or is otherwise rejected by :func:`ledger_dir` --
+    raises :class:`StatementsUnreadable`, so the guard fails closed. A typo in the
+    variable must not silently disable a safety control.
     """
     raw = os.environ.get(ENV_VAR)
     if not raw:
         return None, f"{ENV_VAR} is not set"
-    candidate = Path(raw).expanduser()
-    if not candidate.exists():
-        return None, f"{ENV_VAR}={candidate} does not exist"
     try:
         return ledger_dir(), ""
     except LedgerDirError as exc:
@@ -386,12 +542,18 @@ def evaluate(
     source: TokenSource | None = None,
     force_rebuild: bool = False,
     ledger_root: Path | None = None,
+    repo_root: Path | None = None,
 ) -> GuardResult:
     """Run the guard over ``texts`` and return a printable result.
 
     ``ledger_root`` overrides environment resolution, which the tests use. When it
     is ``None``, the ledger is resolved from ``EXPENSUCHIS_LEDGER_DIR`` under the
     fail-closed contract described in the module docstring.
+
+    ``repo_root`` is the directory the derived legitimate-number set is computed
+    from. When it is ``None`` the derived set is empty, which is what the synthetic
+    unit tests use; the command line always passes the repository root so the
+    derived numeric rule is active in production.
     """
     if ledger_root is None:
         try:
@@ -414,20 +576,26 @@ def evaluate(
         return GuardResult(GuardStatus.UNREADABLE, f"leakguard refused: {exc}")
 
     baseline = load_baseline(root)
-    findings = scan(texts, index, baseline)
+    derived = derived_legitimate_numbers(repo_root) if repo_root is not None else set()
+    findings = scan(texts, index, baseline | derived)
     if findings:
         return GuardResult(
             GuardStatus.LEAK,
             f"leakguard refused: {len(findings)} statement-derived token(s) found in "
             f"repository content. Remove them, or add a genuinely generic token to "
-            f"{root / BASELINE_FILENAME} deliberately.",
+            f"{root / BASELINE_FILENAME} deliberately, with a reason.",
             findings=findings,
             tokens_indexed=len(index.token_to_files),
         )
+    checkable_derived = sum(1 for number in derived if _is_checked(number))
+    below_floor = len(derived) - checkable_derived
     return GuardResult(
         GuardStatus.CLEAN,
         f"leakguard: clean ({len(index.token_to_files)} statement tokens indexed, "
-        f"{len(baseline)} baselined; no intersection with the scanned content).",
+        f"{len(baseline)} baselined, {checkable_derived} derived legitimate numbers are "
+        f"checkable (six digits or more) of {len(derived)} derived in total "
+        f"({below_floor} sit below the floor and can never be flagged); "
+        f"no intersection with the scanned content).",
         tokens_indexed=len(index.token_to_files),
     )
 
@@ -459,7 +627,13 @@ def _git_blob(root: Path, name: str) -> str:
 
 
 def staged_texts(root: Path) -> dict[str, str]:
-    """Return the staged content of every file a commit would add or change."""
+    """Return the staged content of every file a commit would add or change.
+
+    ``--diff-filter=ACMR`` lists only added, copied, modified and renamed paths.
+    A token committed while the guard could not run is therefore **not**
+    re-examined by a later commit; ``--tree`` does re-examine everything tracked,
+    which is why the recommended workflow includes a periodic ``--tree``.
+    """
     names = _git_lines("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z", root=root)
     return {name: _git_blob(root, name) for name in names}
 
@@ -486,10 +660,12 @@ def _print_result(result: GuardResult) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the guard for the pre-commit hook or by hand.
+    """Run the guard for the pre-commit / commit-msg hooks or by hand.
 
     Default scans the staged content of the commit being made; ``--tree`` scans
-    every tracked file instead. ``--rebuild-index`` ignores and rewrites the cache.
+    every tracked file instead. ``--message-file`` folds a commit message into the
+    scanned text, which is how the ``commit-msg`` hook checks a message that the
+    pre-commit hook never sees. ``--rebuild-index`` ignores and rewrites the cache.
     """
     parser = argparse.ArgumentParser(
         prog="python -m expensuchis.leakguard",
@@ -499,6 +675,12 @@ def main(argv: list[str] | None = None) -> int:
         "--tree",
         action="store_true",
         help="scan every tracked file instead of the staged content of a commit",
+    )
+    parser.add_argument(
+        "--message-file",
+        metavar="PATH",
+        default=None,
+        help="also scan this commit-message file (git passes it to the commit-msg hook)",
     )
     parser.add_argument(
         "--rebuild-index",
@@ -514,10 +696,28 @@ def main(argv: list[str] | None = None) -> int:
         print(f"leakguard refused: {exc}", file=sys.stderr)
         return EXIT_CODES[GuardStatus.UNREADABLE.value]
 
-    result = evaluate(texts, force_rebuild=args.rebuild_index)
+    if args.message_file is not None:
+        message_path = Path(args.message_file)
+        try:
+            message = message_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            print(
+                f"leakguard refused: cannot read commit message {message_path}: {exc}",
+                file=sys.stderr,
+            )
+            return EXIT_CODES[GuardStatus.UNREADABLE.value]
+        texts = {**texts, f"commit message ({message_path})": message}
+
+    result = evaluate(texts, force_rebuild=args.rebuild_index, repo_root=root)
     _print_result(result)
     return EXIT_CODES[result.status.value]
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 - a crash must be reported distinctly
+        print(f"leakguard crashed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_CODES["crash"]) from None
