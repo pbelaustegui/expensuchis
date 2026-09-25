@@ -396,6 +396,7 @@ market rate. Confirm the exact presentation against a real statement before enco
 - 2026-09-24 — **T-02 delivered and then attacked.** `docs/accounting-model.md` (348 lines),
   `sample/family-model.beancount` (127 lines, `bean-check` clean) and
   `tests/test_family_model.py` (424 lines, 37 tests), after three review rounds.
+  **Closed 2026-09-24** — commit `669d0ac`.
 - 2026-09-24 — **the worst defect of the session: the assertion carrying the project's central
   claim was decorative.** `test_card_purchase_is_counted_as_an_expense_exactly_once` inspected
   one transaction and one category. An adversarial verification recorded the purchase twice
