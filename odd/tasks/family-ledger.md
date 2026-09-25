@@ -476,6 +476,15 @@ market rate. Confirm the exact presentation against a real statement before enco
       directories are noise, so the tracker was corrected rather than the tree.
       *Fix round closed after two independent verification passes — see Progress.*
       **Closed 2026-09-24** — commit `1967456`.
+- [x] T-01b: **The leak guard — incident work, not in the original plan.** Opened after real
+      identifiers taken from the statements were found in this repository's own history (see
+      *The leak guard*). Deliverable: `src/expensuchis/leakguard.py`, its wiring into
+      `.githooks/pre-commit`, and the reviewed baseline that lives with the data in the ledger
+      directory. — checks: the sweep fails on a planted real token; an **absent** ledger
+      directory prints the loud "cannot run" line and allows the commit; a ledger directory
+      that is *configured but unusable* exits 2 and refuses the commit. **Closed 2026-09-24** —
+      commits `7dbf703` (the guard, alongside the import-primitive warnings) and `fec9a99`
+      (the README and docstrings corrected to claim only the behaviour that was measured).
 - [x] T-02: **Model the account tree and the accrual/cash convention** (the core design
       task, needs user input). Deliverable: `docs/accounting-model.md` plus a
       hand-written sample ledger that validates with `bean-check` and covers a card
@@ -490,12 +499,15 @@ market rate. Confirm the exact presentation against a real statement before enco
 - [ ] T-03: Historical USD series (MEP + CCL) fetcher with a local cache, source
       attribution, gap handling, and offline tests against fixtures. Independent of the
       user's banking sources.
-- [ ] T-04a: **Import primitives.** `LedgerPaths` (the ledger directory layout, every derived
+- [x] T-04a: **Import primitives.** `LedgerPaths` (the ledger directory layout, every derived
       path validated to be outside every discoverable repository, not just the base),
       `numbers.py` (the locale amount parser: Argentine and plain formats, leading and
       **trailing** minus, strict rejection instead of guessing), and `counterparties.py` (the
       learned map, stored in the ledger directory because the names are personal data). Pure,
-      table-driven-tested, no statement parsing.
+      table-driven-tested, no statement parsing. **Closed 2026-09-25** — commits `579e466`
+      (the primitives), with `7dbf703` closing the warnings that review left open. The checkbox
+      stayed unticked through the leak-guard incident; corrected in the 2026-09-25
+      reconciliation rather than left implicit.
 - [ ] T-04b: **The workflow contract.** `identify → extract → human review → append → bean-check`
       over beangulp's API (which ships no CLI), with a staging area, deduplication by a natural
       key recorded as transaction metadata, an append that refuses unless the batch was reviewed,
@@ -750,12 +762,63 @@ market rate. Confirm the exact presentation against a real statement before enco
 - **The finding output prints the source statement path**, and the Brubank filename contains the
   account holder's name. Fine locally; that output must not be pasted into a public log.
 
+### T-04b decision record — the review gate is a digest, not a prompt (2026-09-25)
+
+`T-04b` requires "an append that refuses unless the batch was reviewed". Review is mechanised as
+**bytes bound by digest**, and this is the load-bearing design decision of the task:
+
+- `extract` writes `staging/<batch-id>/proposed.beancount` — the exact text to append, produced
+  by beancount's own printer from the entries the importer returned — plus `batch.json` (source,
+  statement sha256, timestamp) and `report.txt` (the human-readable view of the batch).
+- The human reads the report and the proposed bytes, then runs `approve`, which writes
+  `approval.json` holding the **sha256 of `proposed.beancount`**.
+- `append` recomputes that digest and refuses on any mismatch, so an edit made *after* review
+  invalidates the approval instead of riding in on it. **The reviewed bytes are the appended
+  bytes:** nothing is re-derived between review and write.
+
+Why not interactive prompts: the operator is a developer, the whole batch has to be visible at
+once and remain hand-editable, and a prompt cannot be re-read tomorrow. Why not a boolean
+"reviewed" flag: it survives an edit, and the digest does not.
+
+**Honest boundary, stated because this project states them:** the CLI cannot verify that a human
+actually read the report. What it enforces is the separation — staging and appending are
+different commands, and the approval is bound to exact bytes. `approve` proves the digest, not
+the reading.
+
+### T-04b scope note — the tool never invents an account name (2026-09-25)
+
+`bootstrap` writes only the structural skeleton: `main.beancount` (options plus the two
+`include` lines) and a starter `accounts.beancount` holding the equity accounts and
+`Assets:TransferenciaEnTransito`. It **refuses to overwrite** an existing file, and it does not
+generate the person or entity accounts: the real tree names the household's own accounts, which
+are personal data and cannot be derived by the tool. The sample's `P1`/`P2`/`P3` labels are
+placeholders; the real ledger's names are the user's decision, made by hand.
+
+### T-04a closed (2026-09-25)
+
+`paths.py` (`LedgerPaths`, every derived path re-validated individually), `ledger.py`
+(`ledger_dir` + `assert_outside_repository`), `numbers.py` and `counterparties.py` are in and
+green. Baseline re-run by the parent on 2026-09-25, working tree clean at `fec9a99`:
+**192 passed, 1 skipped** (the skip is the opt-in `pdfium` marker) and `ruff` clean on the whole
+source tree. The `T-04a` checkbox had been stale since before the leak-guard incident; the
+reconciliation above corrects it, and the commit identity is recorded there as evidence rather
+than left to the reader.
+
+**Engram mirror refreshed on 2026-09-25.** The mirror at `odd/family-ledger/tasks` still held
+the *first* version of this tracker — the version with T-01 and T-02 open — while the file had
+moved five commits past it. A mirror that lags by that much is worse than no mirror, because it
+would have been trusted on resume. Recorded because the failure mode is silent: nothing in the
+workflow notices a stale mirror.
+
 ## Next step
 
 1. Reconnaissance **closed for all four sources** (nine files, no OCR). The transfer design is
-   **decided** (clearing account) and applied to the model, the sample and the tests.
-2. **T-04, the import workflow contract**, then **T-05, the Mercado Pago importer**. The
-   reconciliation checks are the acceptance gate; the clearing account is the transfer shape.
+   **decided** (clearing account) and applied to the model, the sample and the tests. T-01,
+   T-01b (the leak guard) and T-04a are **closed**.
+2. **T-04b, the import workflow contract, in flight** — with the review gate pinned as a
+   digest-bound approval above. Then **T-04c** (`docs/import-workflow.md` plus the two new
+   categories in the model) and **T-05, the Mercado Pago importer**. The reconciliation checks
+   are the acceptance gate; the clearing account is the transfer shape.
 3. **The counterparty list is no longer a blocker.** The user answered "a mix", and the map is
    **learned during review** rather than predefined, so T-04 and T-05 start now. The first real
    import produces one classification pass — the ~20 names above, asked once — and never repeats.
