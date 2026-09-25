@@ -4,10 +4,17 @@ The ledger lives outside this public repository, in the directory named by
 ``EXPENSUCHIS_LEDGER_DIR``. :func:`expensuchis.ledger.ledger_dir` already refuses a
 base directory that sits inside a discoverable repository, but that bounds **only
 the base**: a base outside the repository can still yield a derived path inside it
-(a symlinked subdirectory, or a layout that nests a checkout under the base). Every
-path this module hands out is therefore passed through
-:func:`expensuchis.ledger.assert_outside_repository` individually. That per-path
-check is the fix for the base-only defect, not a duplicate of it.
+through a symlinked component that resolves back into a discovered repository.
+Every path this module hands out, including :attr:`LedgerPaths.root`, is therefore
+passed through :func:`expensuchis.ledger.assert_outside_repository` individually
+and re-resolved on every access. That per-path check is the fix for the base-only
+defect, not a duplicate of it.
+
+**Known boundary, stated rather than implied:** repository discovery walks *up*
+from this module's directory and the process cwd, so a checkout nested *below* the
+base is not discovered and a symlink that does not resolve into a discovered root
+is not caught. The guard refuses what it can resolve into a discovered repository;
+it does not scan the filesystem for repositories it does not already know about.
 
 The layout is::
 
@@ -68,8 +75,15 @@ class LedgerPaths:
 
     @property
     def root(self) -> Path:
-        """The resolved, already-validated ledger directory itself."""
-        return self._root
+        """The ledger directory itself, re-validated on every access.
+
+        Re-validating here matters because the environment can change *after*
+        construction: if the base is later replaced by a symlink that resolves
+        into a repository, returning the stored path would hand out a repository
+        location. The stored value is the base to resolve, not an answer to
+        return unchecked.
+        """
+        return self._validated(self._root)
 
     @staticmethod
     def _validated(path: Path) -> Path:

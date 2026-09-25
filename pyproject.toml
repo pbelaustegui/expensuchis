@@ -8,6 +8,7 @@ dependencies = [
     "beancount==3.2.3",
     "beangulp==0.2.0",
     "beanquery==0.2.0",
+    "pypdfium2>=5.13.0",
 ]
 
 [dependency-groups]
@@ -25,6 +26,9 @@ packages = ["src/expensuchis"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "pdfium: exercises the real pypdfium2 PDF reader (opt-in, needs EXPENSUCHIS_TEST_PDFIUM=1)",
+]
 
 [tool.ruff]
 line-length = 100

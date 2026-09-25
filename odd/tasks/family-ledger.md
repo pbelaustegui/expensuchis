@@ -713,10 +713,42 @@ market rate. Confirm the exact presentation against a real statement before enco
   construction rather than by remembering.
 
   A second helper to the sweep was removed at the same time: its **stoplist had been masking real
-  tokens.** three utility-provider names (since redacted) are service providers named in this tracker, and the
-  stoplist hid two of the three while the third survived. The final verification was re-run with
+  tokens.** Three household service providers named in this tracker were on that stoplist; it
+  hid two of the three while the third survived. The final verification was re-run with
   **no stoplist at all** — 876 statement tokens against every added line of every commit, 76
   intersections, all reviewed and all either generic banking vocabulary or scrub placeholders.
+
+### The leak guard (2026-09-24)
+
+`src/expensuchis/leakguard.py`, wired into `.githooks/pre-commit` after the privacy guard.
+
+- **Sweeps by token, not phrase**, which is the incident's lesson: a phrase extracted from a
+  statement is longer than the transformed text that leaked, so it matches nothing.
+- **No stoplist.** Instead a **reviewed baseline** lives with the data in the ledger directory
+  (`leakguard-baseline.txt`), derived from a sweep whose entries were justified one by one. A
+  baseline token is ignored; **any other intersection fails**, naming the token, the repository
+  file and the source statement. The distinction is deliberate: a stoplist grows silently and
+  hides things, whereas every baseline addition is a deliberate act against a reviewed list.
+- **Three-way status, not two.** An *absent* ledger directory (unset or nonexistent — a fresh
+  clone, or CI) prints a loud "cannot run; allowing the commit" and exits 0, because the
+  repository must stay usable without the private data. A ledger that is *configured but unusable*
+  (missing statements, an unreadable statement, the ledger inside the repo) is `UNREADABLE` and
+  exits 2 — fail closed. An intersection is `LEAK` and exits 1.
+- The index and baseline live **only** in the ledger directory. The token source is a seam, so the
+  suite injects synthetic text and never needs a PDF or a ledger; `pypdfium2` is imported lazily,
+  and adding it also serves T-07.
+
+**Documented limits, so the guard is not read as a wall:**
+
+- **The alphabetic floor is five characters.** A four-character provider name cannot be caught —
+  and the incident itself named one. Lowering the floor is a one-line change that enlarges the
+  baseline, which is why it is a decision and not a default.
+- **Numeric normalisation is lossy by design.** `1,000.00`, `1000.00` and `100000` collapse to one
+  token, so the numeric baseline is large: the synthetic sample shares round numbers with the real
+  statements. That weakens amount detection to a **delta** check — a new amount in a new place
+  still fails, which is the intent, but it is weaker than it first reads.
+- **The finding output prints the source statement path**, and the Brubank filename contains the
+  account holder's name. Fine locally; that output must not be pasted into a public log.
 
 ## Next step
 

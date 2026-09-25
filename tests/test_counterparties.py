@@ -130,6 +130,16 @@ def test_record_rejects_tabbed_or_empty_names(counterparties: CounterpartyMap) -
     assert not counterparties.path.exists()
 
 
+@pytest.mark.parametrize("source", ["#commented", "  #indented", "#", "#src"])
+def test_record_rejects_a_comment_like_source(
+    counterparties: CounterpartyMap, source: str
+) -> None:
+    """A leading ``#`` writes a row the reader would then skip as a comment."""
+    with pytest.raises(CounterpartyError, match="comment"):
+        counterparties.record(source, "Uno", "expense:Expenses:Otros")
+    assert not counterparties.path.exists()
+
+
 def test_map_is_stored_inside_the_ledger_directory(ledger: Path) -> None:
     paths = LedgerPaths()
     counterparties = CounterpartyMap(paths)

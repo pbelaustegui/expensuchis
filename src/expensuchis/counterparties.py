@@ -72,8 +72,12 @@ class CounterpartyMap:
     """Read and append classifications in the ledger's ``counterparties.tsv``.
 
     The path is obtained through :class:`~expensuchis.paths.LedgerPaths`, so the
-    per-path repository guard applies and this module can never write outside the
-    ledger directory.
+    per-path repository guard refuses a map whose path resolves inside a
+    discoverable repository. That guard prevents *repository leaks*; it does not
+    prevent *redirection*. A ``counterparties.tsv`` that is itself a symlink to a
+    file elsewhere redirects the append, because the guard only checks where the
+    resolved path lives relative to known repositories, not that the file is a
+    regular file owned by the ledger.
     """
 
     def __init__(self, paths: LedgerPaths | None = None) -> None:
@@ -119,9 +123,17 @@ class CounterpartyMap:
         """Append one classification; never rewrite existing rows.
 
         The destination is validated before anything is written, so a bad
-        argument raises without touching the file.
+        argument raises without touching the file. A ``source`` with a leading
+        ``#`` is rejected on purpose: the reader treats a ``#`` at the start of a
+        line as a comment, so such a row would be written and then silently never
+        read back.
         """
         _validate_field(source, "source")
+        if source.lstrip().startswith("#"):
+            raise CounterpartyError(
+                f"Malformed source {source!r}: a leading '#' makes the row a "
+                f"comment, so the classification would be written but never read."
+            )
         _validate_field(raw_name, "raw name")
         _validate_destination(destination, None)
 

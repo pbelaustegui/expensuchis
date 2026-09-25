@@ -156,10 +156,16 @@ def _coerce_decimal(value: Decimal | int | str) -> Decimal:
 
 
 def format_amount(value: Decimal | int | str, fmt: AmountFormat) -> str:
-    """Format ``value`` in ``fmt`` for round-tripping and beancount output.
+    """Format ``value`` in ``fmt`` for beancount output.
 
     ``AmountFormat.PLAIN`` produces beancount's own form (``1,234,567.89``); the
     sign always leads, because that is what beancount parses.
+
+    **Not a lossless round-trip.** The value is silently quantised to two decimal
+    places (``Decimal.quantize`` with the default rounding), so input that carries
+    sub-cent precision does not survive: ``0.005`` becomes ``0.00`` or ``0.01``.
+    For values already at cent precision,
+    ``parse_amount(format_amount(value, fmt), fmt)`` returns the same value.
     """
     amount = _coerce_decimal(value).quantize(_CENT)
     negative = amount < 0

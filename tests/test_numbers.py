@@ -88,20 +88,11 @@ def test_parse_amount_rejects_ambiguity_and_malformation(text: str, fmt: AmountF
         parse_amount(text, fmt)
 
 
-def test_trailing_minus_is_negative_and_a_leading_only_parser_gets_the_wrong_sign() -> None:
-    # The real string from Provincia's card liquidación.
+def test_trailing_minus_is_negative() -> None:
+    # The real shape from Provincia's card liquidación: the sign trails.
     assert parse_amount("12.345,67-", ARS) == Decimal("-12345.67")
-
-    def leading_minus_only(text: str) -> Decimal:
-        # Recognises a leading minus and ignores (drops) a trailing one.
-        raw = text.strip()
-        negative = raw.startswith("-")
-        digits = raw.lstrip("-").rstrip("-").replace(".", "").replace(",", ".")
-        return Decimal(digits) * (-1 if negative else 1)
-
-    # A leading-minus-only implementation reads the payment as a purchase.
-    assert leading_minus_only("12.345,67-") == Decimal("12345.67")
-    assert leading_minus_only("12.345,67-") != parse_amount("12.345,67-", ARS)
+    # A leading and a trailing minus agree for the same magnitude.
+    assert parse_amount("-12.345,67", ARS) == Decimal("-12345.67")
 
 
 @pytest.mark.parametrize(
