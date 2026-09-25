@@ -221,6 +221,19 @@ market rate. Confirm the exact presentation against a real statement before enco
   - **The person dimension comes for free** from the account tree, because each person holds
     their own accounts: "how much did each person spend" is a query, with no per-person
     equity and no balances to build.
+- **Categories approved 2026-09-24**, with two amendments prompted by the user's own question
+  about where a trip and a board game belong: `Expenses:Viajes:{Transporte,Alojamiento,
+  Comida,Actividades,Otros}` and `Expenses:Compras:Juegos`. Two durable rules came out of that
+  same exchange and are now in the model document: **the axis decides** (`Compras` is a thing
+  you keep, `Entretenimiento` is an outing), and **prefer the specific, because merging is
+  trivial and splitting is impossible** — being wrong by being specific costs nothing, being
+  wrong by being generic costs the user's time.
+- **Occasions are tags, not categories.** A trip has two orthogonal dimensions — the object of
+  each expense and the occasion itself — so one is structure and the other is a `#tag`
+  (`#brasil-2026`, and generically `#mudanza`, `#auto-nuevo`). Tags are applied by the user
+  during import review; no statement knows the user is travelling. Deliberately the one
+  convention the sample does not exercise, because the sample is the authority for what an
+  *importer emits*.
 
 ## Task checklist
 
@@ -235,7 +248,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       directories are noise, so the tracker was corrected rather than the tree.
       *Fix round closed after two independent verification passes — see Progress.*
       **Closed 2026-09-24** — commit `1967456`.
-- [ ] T-02: **Model the account tree and the accrual/cash convention** (the core design
+- [x] T-02: **Model the account tree and the accrual/cash convention** (the core design
       task, needs user input). Deliverable: `docs/accounting-model.md` plus a
       hand-written sample ledger that validates with `bean-check` and covers a card
       purchase, a purchase in installments, the card settlement from the bank account,
@@ -380,14 +393,47 @@ market rate. Confirm the exact presentation against a real statement before enco
   picking silently. It also correctly rejected one of the parent's checks as impossible: git
   cannot report "three deleted lines" for a file whose tracked blob is empty, which is the
   case for `README.md` on this branch. The fault was in the brief, not the execution.
+- 2026-09-24 — **T-02 delivered and then attacked.** `docs/accounting-model.md` (348 lines),
+  `sample/family-model.beancount` (127 lines, `bean-check` clean) and
+  `tests/test_family_model.py` (424 lines, 37 tests), after three review rounds.
+- 2026-09-24 — **the worst defect of the session: the assertion carrying the project's central
+  claim was decorative.** `test_card_purchase_is_counted_as_an_expense_exactly_once` inspected
+  one transaction and one category. An adversarial verification recorded the purchase twice
+  **in a different category** and the entire suite stayed green while the household expense
+  total rose from 773,500 to 818,500 ARS. A per-category check is not a total check. It was
+  replaced with a **pinned whole-sample total per currency**, and the mutation that defeated
+  the old assertion now fails with `{'ARS': 818500.00} != {'ARS': 773500.00}`. This is the
+  finding to remember: a decorative assertion is worse than no assertion, because it
+  manufactures confidence.
+- Same round: the "liability exactly zero" assertion summed one hardcoded account, so an
+  unsettled second card passed everything — now an enumeration over every `Liabilities:*`
+  account. A `price` directive could smuggle a market rate past the no-market-rate scan — now
+  refused outright, and the priced-posting count became an exact expected set. The
+  cross-currency transfer, a documented rule with zero coverage, is now in the sample and
+  asserted.
+- 2026-09-24 — **twelve further document findings.** The installments rationale contradicted
+  the two-account rule; "MEP never participates in a transaction" contradicted the MEP worked
+  example, resolved as **a series value is looked up, an executed rate is observed**; "the
+  model forbids mixing commodities" was unenforced until a test was added; the person
+  dimension had no rule at all; and the installments example and the sample used different
+  cards with no clause sanctioning it.
+- 2026-09-24 — **four things `bean-check` accepts without complaint**: a balanced sign
+  inversion, a double-counted settlement, a `price` directive, and an account opened in two
+  currencies. Every one is caught only by the tests. Recorded because it is the recurring
+  argument for why the assertions are the artifact and the document is not.
+- 2026-09-24 — **the user's category question found a hole two reviews had missed.** Asking
+  where a trip and a board game belong exposed that the tree had **no place for a hotel**:
+  `Vivienda` is the home, not lodging. The agent had read the tree twice and a verification
+  pass once, and none of them noticed, because all three were reading a tree instead of
+  imagining a trip.
 
 ## Next step
 
-1. Independent re-verification of the fix round (in flight), then the **first work-unit
-   commit** for T-01.
-2. Then T-02 (account model), which needs the user's head: the account tree, the
-   per-person dimension, and the USD dual-amount rule are family-specific facts, not
-   derivation.
-
-Blocked only on the user confirming the real export formats inside their own BBVA, Mercado
-Pago and Brubank accounts. The Banco Provincia CSV is documented well enough to start now.
+1. Commit T-02 as its work unit.
+2. **Put a real file through the model.** Five rounds in, the model has never met a real
+   statement; it is a well-reviewed hypothesis. The highest-leverage file is a **Mercado Pago
+   report** — the only source covering all three people, generated by the user from the panel,
+   and the least dependent on someone else's format. Either the model survives contact or it
+   falls, and both outcomes are information.
+3. T-03 (MEP and CCL series) is small, unblocked and independent of the user. The deflated view
+   needs it whenever the first real month is ingested.

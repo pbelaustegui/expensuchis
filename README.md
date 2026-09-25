@@ -48,8 +48,12 @@ The structural mitigations are what actually hold: the ledger and every statemen
 never live inside this tree (guard #1), and this check is enforced in CI on every
 push and pull request, so a bad file cannot reach the default branch by being merged.
 
-`sample/smoke.beancount` is a tiny synthetic ledger used only by the smoke test. It is
-not the account model.
+`sample/smoke.beancount` is a tiny synthetic ledger used only by the smoke test; it
+is not the account model. The account model itself lives in
+`sample/family-model.beancount`, the executable proof validated by `bean-check` and by
+`tests/test_family_model.py`, which asserts its load-bearing properties (the card
+liability returns to exactly zero after settlement, and each purchase is counted as an
+expense exactly once).
 
 ## Usage
 

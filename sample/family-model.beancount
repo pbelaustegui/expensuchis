@@ -1,0 +1,127 @@
+;; Synthetic sample ledger that proves the accounting model in
+;; docs/accounting-model.md. No real financial data: every person label, merchant and
+;; amount here is invented. Numbers use the beancount format (comma thousands, period
+;; decimals); the Argentine "1.234.567,89" form is rejected by the parser.
+
+option "title" "Expensuchis family model sample (synthetic)"
+option "operating_currency" "ARS"
+
+;; --- P1: BBVA, Brubank, Mercado Pago (USD savings at BBVA and Brubank) ---
+2026-01-01 open Assets:BBVA:P1:Caja            ARS
+2026-01-01 open Assets:BBVA:P1:CajaUSD         USD
+2026-01-01 open Assets:Brubank:P1:Caja         ARS
+2026-01-01 open Assets:Brubank:P1:CajaUSD      USD
+2026-01-01 open Assets:MercadoPago:P1:Caja     ARS
+2026-01-01 open Liabilities:BBVA:P1:Visa        ARS
+2026-01-01 open Liabilities:BBVA:P1:VisaUSD     USD
+2026-01-01 open Income:P1:Sueldo                ARS
+
+;; --- P2: Banco Provincia, Mercado Pago (USD savings at Provincia) ---
+2026-01-01 open Assets:Provincia:P2:Caja        ARS
+2026-01-01 open Assets:Provincia:P2:CajaUSD     USD
+2026-01-01 open Assets:MercadoPago:P2:Caja      ARS
+2026-01-01 open Liabilities:Provincia:P2:Visa   ARS
+2026-01-01 open Income:P2:Sueldo                ARS
+
+;; --- P3: Mercado Pago only. Spends only, no income, funded by transfers. ---
+2026-01-01 open Assets:MercadoPago:P3:Caja      ARS
+
+;; --- Expense categories. Opened without a currency constraint: a category may
+;; receive both ARS and USD postings, and pinning it to one commodity breaks that.
+2026-01-01 open Expenses:Supermercado
+2026-01-01 open Expenses:Compras:Electrodomesticos
+2026-01-01 open Expenses:ServiciosDigitales:Suscripciones
+2026-01-01 open Expenses:ComidaFuera:Restaurantes
+
+;; --- Equity ---
+2026-01-01 open Equity:Opening-Balances
+
+;; Opening USD balances. Both legs are in USD, so no rate is involved.
+2026-01-02 * "Opening balance" "P1 USD savings" #opening
+  Assets:BBVA:P1:CajaUSD                1,000.00 USD
+  Equity:Opening-Balances
+
+2026-01-02 * "Opening balance" "P2 USD savings" #opening
+  Assets:Provincia:P2:CajaUSD             500.00 USD
+  Equity:Opening-Balances
+
+;; Income is coarse and never reported; it exists so the ARS balances reconcile.
+;; P3 has no income at all.
+2026-01-05 * "Employer" "P1 salary" #income
+  Assets:BBVA:P1:Caja                1,800,000.00 ARS
+  Income:P1:Sueldo                  -1,800,000.00 ARS
+
+2026-01-05 * "Employer" "P2 salary" #income
+  Assets:Provincia:P2:Caja           1,200,000.00 ARS
+  Income:P2:Sueldo                  -1,200,000.00 ARS
+
+;; Scenario 1: a card purchase (accrual). Expense positive, liability negative.
+2026-02-05 * "Almacen del Sur" "Card purchase" #card-purchase
+  Expenses:Supermercado                 45,000.00 ARS
+  Liabilities:BBVA:P1:Visa             -45,000.00 ARS
+
+;; Scenario 1: the statement settlement (cash). Liability back to zero, no expense leg.
+2026-02-20 * "BBVA" "Card statement settlement" #card-settlement
+  Liabilities:BBVA:P1:Visa              45,000.00 ARS
+  Assets:BBVA:P1:Caja                  -45,000.00 ARS
+
+;; Scenario 2: a 12-installment purchase on P2's Banco Provincia card, recorded once at
+;; the purchase date and left outstanding at the end of the sample. The plan lives in
+;; metadata, and the amount carries its currency (an Amount, not a bare number).
+2026-03-12 * "Muebles del Litoral" "Washing machine in 12 installments" #installments
+  installments: 12
+  first_due: "2026-04"
+  installment_amount: 60,000.00 ARS
+  Expenses:Compras:Electrodomesticos        720,000.00 ARS
+  Liabilities:Provincia:P2:Visa            -720,000.00 ARS
+
+;; Scenario 3: a cash expense.
+2026-03-18 * "Feria del Barrio" "Cash lunch" #cash
+  Expenses:ComidaFuera:Restaurantes       8,500.00 ARS
+  Assets:BBVA:P1:Caja                    -8,500.00 ARS
+
+;; Scenario 4: a USD purchase charged to an ARS card. The @ price is the
+;; administrative rate implied by the two amounts the statement provides; it is
+;; never looked up from a market FX series.
+2026-03-10 * "Cloudstream" "Subscription charged in USD" #usd-card
+  Expenses:ServiciosDigitales:Suscripciones      15.00 USD @ 1,580.00 ARS
+  Liabilities:BBVA:P1:Visa                  -23,700.00 ARS
+
+;; Scenario 5: a USD purchase charged to a card that carries a USD balance (case b).
+;; Both sides are USD, so no rate appears; it is settled later by a separate transaction.
+2026-03-10 * "Cloudstream" "Subscription charged to USD card balance" #usd-card-usd
+  Expenses:ServiciosDigitales:Suscripciones      15.00 USD
+  Liabilities:BBVA:P1:VisaUSD                   -15.00 USD
+
+2026-03-22 * "BBVA" "USD card statement settlement" #usd-card-settlement
+  Liabilities:BBVA:P1:VisaUSD                    15.00 USD
+  Assets:BBVA:P1:CajaUSD                        -15.00 USD
+
+;; Scenario 6: a USD purchase debited directly from the USD savings account (case c).
+;; One transaction, no liability, no rate.
+2026-03-10 * "PixelForge" "USD purchase from USD savings" #usd-savings
+  Expenses:ServiciosDigitales:Suscripciones      15.00 USD
+  Assets:BBVA:P1:CajaUSD                        -15.00 USD
+
+;; Scenario 1b: settlement covering the March items on the ARS card (case a only).
+2026-03-25 * "BBVA" "Card statement settlement" #card-settlement
+  Liabilities:BBVA:P1:Visa                  23,700.00 ARS
+  Assets:BBVA:P1:Caja                      -23,700.00 ARS
+
+;; Scenario 7: an internal transfer between two family members (P1 -> P2).
+2026-03-16 * "Mercado Pago" "Transfer P1 to P2" #internal-transfer
+  Assets:MercadoPago:P2:Caja             20,000.00 ARS
+  Assets:MercadoPago:P1:Caja            -20,000.00 ARS
+
+;; Scenario 7: the transfer that funds P3, who has no income of his own.
+2026-03-15 * "Mercado Pago" "Transfer P1 to P3" #transfer-to-p3
+  Assets:MercadoPago:P3:Caja             30,000.00 ARS
+  Assets:MercadoPago:P1:Caja            -30,000.00 ARS
+
+;; Scenario 7b: a cross-currency internal transfer (an FX operation). It is not an
+;; expense, because both postings stay inside Assets:*. Unlike a market FX series, the
+;; @ 1,240.00 here is the rate actually executed in this operation: it is observed from
+;; the operation itself, not looked up.
+2026-03-20 * "Mercado Pago" "Cross-currency transfer" #internal-transfer-fx
+  Assets:BBVA:P1:CajaUSD                500.00 USD @ 1,240.00 ARS
+  Assets:BBVA:P1:Caja              -620,000.00 ARS
