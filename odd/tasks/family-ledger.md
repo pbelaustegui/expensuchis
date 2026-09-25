@@ -490,14 +490,22 @@ market rate. Confirm the exact presentation against a real statement before enco
 - [ ] T-03: Historical USD series (MEP + CCL) fetcher with a local cache, source
       attribution, gap handling, and offline tests against fixtures. Independent of the
       user's banking sources.
-- [ ] T-04: Import workflow contract built on beangulp's API (no CLI is provided by the
-      package): `identify → extract → human review → append → bean-check`. Staging area,
-      natural-key deduplication, locale number normalizer, and an explicit
-      no-direct-write rule.
-      **Every derived path must be validated to be outside the repository, not just the
-      configured base directory** — `ledger_dir()` bounds the base only, and a base such
-      as the repository's parent can still yield in-repo paths downstream.
-      — depends on T-02.
+- [ ] T-04a: **Import primitives.** `LedgerPaths` (the ledger directory layout, every derived
+      path validated to be outside every discoverable repository, not just the base),
+      `numbers.py` (the locale amount parser: Argentine and plain formats, leading and
+      **trailing** minus, strict rejection instead of guessing), and `counterparties.py` (the
+      learned map, stored in the ledger directory because the names are personal data). Pure,
+      table-driven-tested, no statement parsing.
+- [ ] T-04b: **The workflow contract.** `identify → extract → human review → append → bean-check`
+      over beangulp's API (which ships no CLI), with a staging area, deduplication by a natural
+      key recorded as transaction metadata, an append that refuses unless the batch was reviewed,
+      and a `bean-check` gate that rolls back on failure. Plus `docs/import-workflow.md`.
+      — depends on T-04a.
+- [ ] T-04c: **The counterparty map design**, in `docs/import-workflow.md`: per-source variants,
+      `internal:<account>` or `expense:<category>` destinations, asked once during review and
+      remembered, never defaulted. Categories to add: `Expenses:ServiciosPersonales` and
+      `Expenses:AyudaFamiliar`, with assignment to an existing category allowed when that is what
+      the individual is. — depends on T-04a.
 - [ ] T-05: **Mercado Pago importer — UNBLOCKED, format confirmed against two real files.**
       Parses `Resumen de cuenta en pesos` (one PDF per person per month) into beancount
       transactions, with the five reconciliation checks as a **hard gate**: it must refuse to
