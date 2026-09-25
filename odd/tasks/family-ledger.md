@@ -234,7 +234,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       own them (T-02 owns `docs/`, T-04 owns `importers/` and `tools/`). Empty placeholder
       directories are noise, so the tracker was corrected rather than the tree.
       *Fix round closed after two independent verification passes — see Progress.*
-      **Closed 2026-09-24.**
+      **Closed 2026-09-24** — commit `1967456`.
 - [ ] T-02: **Model the account tree and the accrual/cash convention** (the core design
       task, needs user input). Deliverable: `docs/accounting-model.md` plus a
       hand-written sample ledger that validates with `bean-check` and covers a card
@@ -372,7 +372,14 @@ market rate. Confirm the exact presentation against a real statement before enco
   boundary. Deliberately not hardened further, because refusing any ledger inside *any* git
   worktree would block legitimate setups such as versioning the ledger in a private repo of
   its own.
-- 2026-09-24 — **T-01 closed** with the first work-unit commit on `feat/family-ledger`.
+- 2026-09-24 — **T-01 closed**: first work-unit commit `1967456` on `feat/family-ledger`
+  (`chore: bootstrap the beancount ledger project with privacy guards`), 15 files, tree
+  clean. The README cleanup commit that followed exposed a contradiction in the parent's own
+  brief — the three lines quoted for deletion began with the clause that had to remain — and
+  the worker resolved it by the end-state requirement and reported the conflict instead of
+  picking silently. It also correctly rejected one of the parent's checks as impossible: git
+  cannot report "three deleted lines" for a file whose tracked blob is empty, which is the
+  case for `README.md` on this branch. The fault was in the brief, not the execution.
 
 ## Next step
 
