@@ -700,6 +700,24 @@ market rate. Confirm the exact presentation against a real statement before enco
   reformatted, recased. The inverted sweep — take the tokens from the statements, look for them in
   everything ever committed — is also what found the leak site the verification pass missed.
 
+  **Correction, and it matters: the leaked commits were never published.** GitHub held only
+  `792bd88` — the initial commit with a one-line README — and this branch had no upstream and no
+  push in its reflog. The exposure window was **zero**, no force-push was needed, and the question
+  of overwriting published history was moot. The parent asserted exposure without ever checking
+  which refs the remote actually carried, and the verification pass made the same assumption.
+
+  The catch was still worth its cost, and for a better reason than cleaning up: **it stopped the
+  leak before the first push.** Had the branch been pushed first, an ordinary `git push` would have
+  published the identifiers permanently — precisely what every guard in this project exists to
+  prevent, done by hand, by the agent. The rewrite is kept because it makes the first push clean by
+  construction rather than by remembering.
+
+  A second helper to the sweep was removed at the same time: its **stoplist had been masking real
+  tokens.** three utility-provider names (since redacted) are service providers named in this tracker, and the
+  stoplist hid two of the three while the third survived. The final verification was re-run with
+  **no stoplist at all** — 876 statement tokens against every added line of every commit, 76
+  intersections, all reviewed and all either generic banking vocabulary or scrub placeholders.
+
 ## Next step
 
 1. Reconnaissance **closed for all four sources** (nine files, no OCR). The transfer design is
