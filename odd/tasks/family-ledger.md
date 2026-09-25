@@ -534,12 +534,25 @@ market rate. Confirm the exact presentation against a real statement before enco
       is what is incomplete. Found by running the quick path instead of reading it. **Closed
       2026-09-25** — native review `review-83a9010a1ddd5288` approved with **no correction** (medium
       tier, one lens, 239 changed lines), commits `aea5ce0`, `3624fd9`. See *T-04c delivered* below.
-- [ ] T-05: **Mercado Pago importer — UNBLOCKED, format confirmed against two real files.**
-      Parses `Resumen de cuenta en pesos` (one PDF per person per month) into beancount
-      transactions, with the five reconciliation checks as a **hard gate**: it must refuse to
-      emit if the header arithmetic, the sum of positives against *Entradas*, the sum of
-      negatives against *Salidas*, the running-balance chain, or the closing balance fails.
-      — depends on T-04.
+- [ ] T-05a: **The Mercado Pago parser core — the format knowledge lives here.** Pure over
+      *extracted text* (no PDF library in the parser): movements with their running balance, and
+      the five reconciliation checks (header arithmetic, sum of positives against *Entradas*,
+      sum of negatives against *Salidas*, the running-balance chain, and the closing balance) as a
+      **hard gate that raises instead of returning partial rows**, plus a sixth self-check that the
+      natural keys are unique inside one statement — a key that repeats is not a key. Ship with a
+      **local probe that prints aggregates only** (file content hash, page and movement counts, one
+      line per check) so the real statements can be verified without any statement content entering
+      an agent's context. — split out of T-05 because the parser and the wiring are separately
+      reviewable, and because the parser is the only place the format is encoded.
+- [ ] T-05b: **The Mercado Pago importer wiring.** The thin `pypdfium2` extractor declared per
+      source, the natural key (date + operation id + amount) recorded as `key:` metadata,
+      resolution through `CounterpartyMap` with the refusal message shape T-04c pinned, and
+      registration in `get_importers()`. — depends on T-05a.
+      *Why the split, recorded because it changes the plan mid-flight:* T-05 as written was the
+      first importer end to end, which is roughly twice the review budget and mixes two different
+      kinds of knowledge — the statement's geometry and the pipeline's contract. The parser can be
+      proved by the reconciliation checks alone; the wiring can be proved by the pipeline's own
+      gate matrix.
 - [ ] T-06: Banco Provincia importers, **format confirmed against real files**: the account
       `Extracto de cuenta` (quarterly, dot-decimal, `Saldo` on every row → row-by-row
       self-verification) and the `Liquidación Visa` (monthly, Argentine comma-decimal, **trailing
@@ -989,6 +1002,40 @@ found, so no refuter, no correction and no targeted validator were needed. Ackno
 **Two advisory findings, both non-blocking and neither reopening this review** — separate later
 work: `R3-001` (WARNING, `tests/test_family_model.py:54`) and `R3-002` (SUGGESTION,
 `docs/import-workflow.md:264`).
+
+### The statement's geometry, obtained without reading a single word of it (2026-09-25)
+
+The two real Mercado Pago statements were still where the first reconnaissance left them — and that
+made the next question urgent, because **the agents' models are remote APIs**: putting a real
+statement in a worker's context, or letting a worker open the PDF itself, would send the household's
+financial data to a third party. The repository rule ("real financial data never enters this
+repository") is necessary and not sufficient; the stronger rule this session adopted is **no agent
+reads statement content, and no statement-derived string appears in a report, a commit or a tool
+call.**
+
+So the parser was designed against a **shape dump**: a local script extracts the text, replaces every
+digit with `x` (length preserved, so column widths survive) and every alphabetic token **not on a
+whitelist of generic statement vocabulary** with `x`s of the same length. What reached the parent,
+and then the brief, was the template and its geometry with zero content — no name, no amount, no
+operation id. It paid for itself immediately, because the geometry was **not** what the tracker
+implied:
+
+- Rows are **not one line each**. A movement is a *block*: a compact single line
+  (`dd-mm-yyyy Rendimientos <id> $ <value> $ <balance>`), or a wrapped two-or-three-line block where
+  the date is alone on its line, the description follows across one or two lines, and the final line
+  carries the id and the two amounts. A parser that assumed one line per movement would have failed
+  on the real files while passing any synthetic fixture its author invented.
+- `Rendimientos` are the **volume**, not the exception: the small statement carries many of them
+  between two real movements, so a wrong sign or a skipped row is invisible in the totals and
+  caught only by the running-balance chain.
+- Page furniture repeats the table header on every page (`Fecha … ID de …` / `… Valor Saldo`), so the
+  parser must distinguish furniture from payload by **structure** — a payload line ends with two
+  amounts — and let the reconciliation checks prove that nothing real was skipped.
+
+**The rule for the agent, stated once so it is not re-learned:** the real bytes are only ever read by
+ordinary local processes whose output is an aggregate — a content hash, counts, and one line per
+check. Debugging information is masked at the source, which makes masking a requirement **on the
+code**: a refusal message must not echo a raw statement line.
 
 ## Next step
 
