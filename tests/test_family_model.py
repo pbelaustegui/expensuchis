@@ -33,11 +33,24 @@ EXPENSES_PREFIX = "Expenses:"
 LIABILITIES_PREFIX = "Liabilities:"
 CLEARING_PREFIX = "Assets:TransferenciaEnTransito"
 EQUITY_OPENING = "Equity:Opening-Balances"
+PERSONAL_SERVICE_CATEGORY = "Expenses:ServiciosPersonales"
+FAMILY_SUPPORT_CATEGORY = "Expenses:AyudaFamiliar"
 
 # Pinned on purpose. Any change to the sample must be a deliberate change to this
 # expectation too: the brittleness is the defence against a silently duplicated
 # expense, which ``bean-check`` accepts when it balances.
-EXPECTED_EXPENSES_BY_CURRENCY = {"ARS": Decimal("773500.00"), "USD": Decimal("45.00")}
+#
+# The ARS total is the sum of every ``Expenses:*`` posting in the sample, written out so
+# the next reader can re-check it without re-deriving the sample:
+#      45000.00  Expenses:Supermercado (one card purchase, counted once)
+#     720000.00  Expenses:Compras:Electrodomesticos (the 12-installment purchase)
+#       8500.00  Expenses:ComidaFuera:Restaurantes (the cash lunch)
+#      25000.00  Expenses:ServiciosPersonales (an outside service provider)
+#      40000.00  Expenses:AyudaFamiliar (support to a person with no account here)
+#   -----------
+#     838500.00  total, up from 773500.00 before the two person-payment scenarios
+# The USD total is unchanged at 45.00: the three USD-posted subscriptions of 15.00 each.
+EXPECTED_EXPENSES_BY_CURRENCY = {"ARS": Decimal("838500.00"), "USD": Decimal("45.00")}
 
 
 def _load() -> tuple[list[data.Transaction], list[tuple[str, int, str]]]:
@@ -210,6 +223,68 @@ def test_cross_currency_transfer_carries_an_executed_rate() -> None:
     assert ars_legs[0].units.number == Decimal("-620000.00")
     # The executed rate is exactly the ratio of the two legs, not a series value.
     assert usd_legs[0].units.number * usd_legs[0].price.number == -ars_legs[0].units.number
+
+
+def test_personal_service_category_totals_exactly_its_transaction() -> None:
+    """A person who performs a service is spending, and it has its own category.
+
+    The category must be *opened* in the sample too: an undeclared account is a
+    `load_file` error, so this pins the open directive as much as the posting.
+    """
+    entries, errors, _ = loader.load_file(str(SAMPLE_LEDGER))
+    assert errors == [], errors
+    transactions = [entry for entry in entries if isinstance(entry, data.Transaction)]
+    opened = {
+        entry.account
+        for entry in entries
+        if isinstance(entry, data.Open) and entry.account == PERSONAL_SERVICE_CATEGORY
+    }
+    assert opened == {PERSONAL_SERVICE_CATEGORY}, "category must be opened in the sample"
+
+    services = _tagged(transactions, "personal-service")
+    assert len(services) == 1, "sample must contain one #personal-service transaction"
+    expense = _expense_postings(services[0])
+    assert len(expense) == 1
+    assert expense[0].account == PERSONAL_SERVICE_CATEGORY
+    assert expense[0].units.number == Decimal("25000.00")
+    assert expense[0].units.currency == "ARS"
+
+    assert _balance(transactions, PERSONAL_SERVICE_CATEGORY) == {"ARS": Decimal("25000.00")}
+
+
+def test_family_support_category_totals_exactly_its_transaction() -> None:
+    """Money that leaves the household for good to a person with no account here."""
+    entries, errors, _ = loader.load_file(str(SAMPLE_LEDGER))
+    assert errors == [], errors
+    transactions = [entry for entry in entries if isinstance(entry, data.Transaction)]
+    opened = {
+        entry.account
+        for entry in entries
+        if isinstance(entry, data.Open) and entry.account == FAMILY_SUPPORT_CATEGORY
+    }
+    assert opened == {FAMILY_SUPPORT_CATEGORY}, "category must be opened in the sample"
+
+    support = _tagged(transactions, "family-support")
+    assert len(support) == 1, "sample must contain one #family-support transaction"
+    expense = _expense_postings(support[0])
+    assert len(expense) == 1
+    assert expense[0].account == FAMILY_SUPPORT_CATEGORY
+    assert expense[0].units.number == Decimal("40000.00")
+    assert expense[0].units.currency == "ARS"
+
+    assert _balance(transactions, FAMILY_SUPPORT_CATEGORY) == {"ARS": Decimal("40000.00")}
+
+
+def test_personal_service_payment_does_not_touch_the_clearing_account() -> None:
+    """Paying an outside provider is not an internal transfer; the clearing stays zero."""
+    transactions, _ = _load()
+    services = _tagged(transactions, "personal-service")
+    assert len(services) == 1
+    accounts = {posting.account for posting in services[0].postings}
+    assert CLEARING_PREFIX not in accounts
+    assert _is_zero(_balance(transactions, CLEARING_PREFIX)), (
+        "the service payment must not disturb the clearing account"
+    )
 
 
 def test_cash_expense_is_in_its_category() -> None:

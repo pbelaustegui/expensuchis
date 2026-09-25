@@ -36,6 +36,8 @@ option "operating_currency" "ARS"
 2026-01-01 open Expenses:Compras:Electrodomesticos
 2026-01-01 open Expenses:ServiciosDigitales:Suscripciones
 2026-01-01 open Expenses:ComidaFuera:Restaurantes
+2026-01-01 open Expenses:ServiciosPersonales
+2026-01-01 open Expenses:AyudaFamiliar
 
 ;; --- Equity ---
 2026-01-01 open Equity:Opening-Balances
@@ -141,3 +143,19 @@ option "operating_currency" "ARS"
 2026-03-20 * "Mercado Pago" "Cross-currency transfer" #internal-transfer-fx
   Assets:BBVA:P1:CajaUSD                500.00 USD @ 1,240.00 ARS
   Assets:BBVA:P1:Caja              -620,000.00 ARS
+
+;; Scenario 8: money paid to a person for a service they perform (cleaning, repairs,
+;; private classes). They have no account in this ledger, so the money leaves the
+;; household: the destination is ``expense:ServiciosPersonales``, never ``internal:``.
+;; A professional is not a personal service: a doctor is ``Expenses:Salud:Consultas``.
+2026-04-02 * "Servicio Domestico Ejemplo" "Cleaning service, paid in cash" #personal-service
+  Expenses:ServiciosPersonales           25,000.00 ARS
+  Assets:BBVA:P1:Caja                    -25,000.00 ARS
+
+;; Scenario 9: support money that leaves the household for good, sent to a person who
+;; has no account in this ledger. Because there is no account here, it is spending, not
+;; an internal transfer; ``AyudaFamiliar`` is the one account for it. The transfer that
+;; funds P3 is different: P3's account is in the ledger, so it stays internal.
+2026-04-05 * "Familiar Ejemplo" "Family support, no account in this ledger" #family-support
+  Expenses:AyudaFamiliar                  40,000.00 ARS
+  Assets:MercadoPago:P1:Caja             -40,000.00 ARS

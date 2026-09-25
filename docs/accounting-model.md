@@ -346,12 +346,14 @@ Expenses:Salud:{ObraSocial,Farmacia,Consultas}
 Expenses:Educacion:{Colegio,Cursos,Utiles}
 Expenses:Compras:{Ropa,Hogar,Electrodomesticos,Electronica,Juegos}
 Expenses:ServiciosDigitales:{Suscripciones,Telefonia}
+Expenses:ServiciosPersonales
 Expenses:Impuestos:{Percepciones,Sellos,ABL}
 Expenses:Seguros
 Expenses:Entretenimiento:{Salidas,Deportes}
 Expenses:Viajes:{Transporte,Alojamiento,Comida,Actividades,Otros}
 Expenses:CargosBancarios
 Expenses:Mascotas
+Expenses:AyudaFamiliar
 Expenses:Otros
 ```
 
@@ -359,8 +361,24 @@ Two notes on the Argentine specifics:
 
 - `Expenses:Impuestos:Percepciones` exists on purpose: perceptions (IIBB, RG 5617) appear on
   card statements as separate lines and are real cost, not noise.
-- `Expenses:Familia` is deliberately **absent**. Transfers to family members are internal.
-  That account would only exist for money that leaves the household for good.
+- `Expenses:Familia` is deliberately **absent**, and its absence is not contradicted by
+  `Expenses:AyudaFamiliar`: there is deliberately **no per-person or per-relationship
+  category** — not `Expenses:Familia`, not `Expenses:<Name>` — because personal names must
+  stay out of this public repository. Transfers between accounts **in the ledger**, family
+  members included, stay internal and are never spending. `Expenses:AyudaFamiliar` is the
+  **one** account for money that leaves the household for good to a person with **no account
+  here**; it does not turn a transfer to P3 (whose account is in the ledger) into an expense.
+
+### The boundary the counterparty map enforces
+
+The map that classifies each statement name lands every counterparty on one side of a single
+line: money moving between accounts **inside** the ledger is not spending, however family it
+looks, because every posting stays in `Assets:*`/`Liabilities:*`; money **leaving the
+household for good** is spending. When the name the statement shows is a person with no
+account here, the destination is an expense category, and for support that leaves for good it
+is `Expenses:AyudaFamiliar`. The boundary is the ledger, not the family relationship: the same
+surname can be `internal:` (there is an account here) or `expense:` (there is not), and only
+the ledger decides which.
 
 ### The axis each category answers
 
@@ -408,6 +426,12 @@ user is travelling. This is deliberately the one convention here that the sample
 exercise: the sample is the authority for what an **importer emits**, and an importer never emits
 a trip tag.
 
+The sample does carry tags, and they are a different animal: `#card-purchase`, `#installments`,
+`#transfer-to-p3`, `#personal-service` and their siblings are **structural scenario markers** —
+labels that name the case each transaction demonstrates, so the tests can find it without
+matching on amounts. They are sample annotations, not an importer convention, and none of them is
+an occasion anyone would ever ask about. `#brasil-2026` is what an importer never emits.
+
 ### Whose expense is it
 
 Expenses carry **no person tag by design**. Per-person attribution is derived from the
@@ -435,6 +459,11 @@ placeholder product and merchant names, which is fine in a synthetic sample:
    and the credit — each posting `Assets:TransferenciaEnTransito`, so the clearing account nets
    to zero.
 8. A cross-currency internal transfer, with the rate the operation executed.
+9. A payment to a person **outside** the ledger for a service they perform, posting
+   `Expenses:ServiciosPersonales`; it is not an `internal:` counterparty and must not touch the
+   clearing account.
+10. A support payment to a person with **no account** in this ledger, posting
+    `Expenses:AyudaFamiliar` — spending, because the money leaves the household for good.
 
 And the assertions that make the model meaningful, in `tests/test_family_model.py`:
 
@@ -458,6 +487,9 @@ And the assertions that make the model meaningful, in `tests/test_family_model.p
 - Every account whose name ends in `USD` is declared with currency `USD`, and **no** `open`
   directive declares more than one currency.
 - The installment plan's metadata survives parsing as an `Amount` with its currency intact.
+- Each coarse person-payment category (`Expenses:ServiciosPersonales`, `Expenses:AyudaFamiliar`)
+  totals exactly what its sample transaction posts, and the service payment to an outside
+  provider does not touch the clearing account.
 - The opening balances, the income postings and the cash expense are present and posted against
   the accounts this document names.
 
