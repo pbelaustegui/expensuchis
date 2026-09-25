@@ -108,7 +108,7 @@ parser.
 | Banco Provincia | Account + Visa card | `Cuentas → Extractos Electrónicos` | **PDF** downloaded here (the bank also documents a CSV export). The account extracto is **quarterly**, dot-decimal, with `Saldo` populated on every row; the card liquidación is monthly, Argentine comma-decimal, with **trailing minus** and `TC` | **Low** on the account, **medium** on the card |
 | BBVA | Account + cards (Visa, Mastercard, unified) | `Cuentas → Extractos`, downloaded per product | **PDF, text layer present** — requires `pypdfium2`; `pypdf` returns polluted text and no layout. `DÉBITO`/`CRÉDITO` columns with a leading minus, plus a `SALDO` column | **Low-medium** (confirmed with real files) |
 | Mercado Pago | Fintech | **Confirmed 2026-09-24 with two real files**: `Resumen de cuenta en pesos`, one PDF per person per month, reachable from `Informes y facturación → Reportes de ventas y extractos de cuenta` | **PDF generated from HTML** (`Producer: openhtmltopdf`), real text layer, layout-extractable — not a scan | **Low** — and self-verifying, see below |
-| Brubank | Fintech | App → `Productos → Resumen de cuenta` → pick year and month | **PDF, one month at a time, delivered by email** | **High** |
+| Brubank | Account | App → `Productos → Resumen de cuenta`; the period is **chosen by the user**, not a calendar month | **PDF, no password, text layer present in both extractors.** `Débito`/`Crédito` columns with `-` in the unused one, plus a `Saldo` column. No minus sign anywhere in the document | **Low** (confirmed with a real file) |
 
 Evidence and confidence:
 
@@ -134,7 +134,7 @@ Evidence and confidence:
 | Entity | People | Documents/month | Automatable | Parser |
 | --- | --- | --- | --- | --- |
 | Mercado Pago | **all three** | 3 | **Yes — API** | **Low** (confirmed by real files) |
-| Brubank | Person 1 only | 1 | No | Hard (PDF by email) |
+| Brubank | Person 1 only | 1 | No | **Low** (confirmed with a real file) |
 | BBVA | Person 1 only | 1-2 (account + card) | No | Medium-hard (`D`/`H`, unsigned) |
 | Banco Provincia | Person 2 only | 1-2 (account + card) | No | Easy (CSV) |
 
@@ -241,6 +241,53 @@ Traps the real files exposed, none of which were in this document before:
   `USD` appears inside the descriptions of USD items.
 - **`PAGO CON VISA DEBITO` and `EXTRACCION ELEC+CASH`** in the BBVA account are direct debits, so
   that account behaves as model **case (c)**: no card liability involved.
+
+### Brubank confirmed against a real file (2026-09-24)
+
+One file, period **2026-08-31 to 2026-09-23** — a **range the user chose**, not a calendar month. So
+periods are arbitrary and can overlap, which makes deduplication load-bearing. 4 pages, no password,
+text layer present in both extractors. Note that `file` reports `0 page(s)` for it: a bad reading by
+the heuristic, not a broken document.
+
+Header carries `Tipo`, `Moneda Pesos (ARS)`, `CUIT`, `Número`, `CBU`, and **`Saldo Inicial`
+and `Saldo Final`** with `Créditos` and `Débitos` totals. Table columns:
+**`Fecha | #Ref | Descripción | Débito | Crédito | Saldo`**.
+
+**It is the safest of the four formats and also the one with the least redundancy.** Direction is
+encoded **only by which column carries the value** — there is not a single minus sign in the whole
+document, and the unused column renders as `-`. Nothing in the signs can catch a misread column, so
+the running balance is the *only* thing that would reveal it. It also uses the **Argentine number
+format**.
+
+- **28 movements** in the 24-day period, each row carrying a running balance.
+- **`#Ref` is a per-row reference number** — a second candidate dedup key alongside the date.
+- **The description is a counterparty name, not a movement type**: family members and third parties
+  for transfers, and the actual service provider for the rest (`AguasEjemplo`, `ElectricaEjemplo`,
+  `GasEjemplo ban bs as`, `Municipio de ejemplo`, `Instituto Ejemplo`), plus `Intereses pagados` and the
+  header's `Imp. Trans. Financieras`. **Categorization here means matching names, not parsing a
+  verb** — which is a different problem from every other source.
+- **`De una cuenta tuya - BBVA` is a new trap, and it puts the cross-statement problem in real
+  data.** That line is money moving from the user's own BBVA account into his Brubank account. It
+  reads like a payment to a third party called BBVA and it is an internal transfer, and the same
+  movement appears as a debit in the BBVA statement. **One real transfer, present in two files that
+  are both in the ledger.**
+
+### The cross-statement transfer needs a decision before any importer is written
+
+The model requires **one balanced transaction per real transfer, not one per statement line**, and
+`De una cuenta tuya - BBVA` shows why that is not optional: recording both lines would move the same
+money twice. The real files suggest a design the model does not yet name, and it is probably better
+than the one it does:
+
+- **Option A — match across statements.** A reconciliation step sees both sides and emits one
+  transaction. Requires both files to be present in the same run.
+- **Option B — a clearing account.** Each importer emits its own side and posts the counterpart to a
+  clearing account such as `Assets:TransferenciaEnTransito`. When both sides are imported the
+  clearing account nets to exactly zero, and **a non-zero balance in it is a loud daily signal that
+  one side is missing** — the same fail-loud discipline as the reconciliation checks.
+
+Option B is per-statement, needs no cross-file orchestration, and turns a silent failure into a
+visible one. **Open: decide in T-04**, because it changes every importer's output shape.
 
 ### Derived order of work (revised after the matrix)
 
@@ -377,9 +424,11 @@ market rate. Confirm the exact presentation against a real statement before enco
       (`DÉBITO`/`CRÉDITO`/`SALDO`) and the Visa and Mastercard statements (**`PESOS` and
       `DÓLARES` columns**, `C.NN/NN` installments). Requires adding `pypdfium2` as a declared
       runtime dependency; `pypdf` cannot read these files. — depends on T-04.
-- [ ] T-08..N: Brubank importer (monthly PDF by email, one document a month for one person).
-      **Blocked: no real file yet**; at that volume manual entry remains a legitimate alternative.
-      — depends on T-04.
+- [ ] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
+      building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
+      counterparty, so the parse is straightforward; its one new problem is
+      `De una cuenta tuya - <banco>`, which is internal, and its categorization is name matching
+      rather than verb parsing. — depends on T-04.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
