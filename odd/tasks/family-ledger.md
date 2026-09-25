@@ -107,7 +107,7 @@ parser.
 | --- | --- | --- | --- | --- |
 | Banco Provincia | Bank account | `Cuentas → Extractos Electrónicos`, per account | **PDF or CSV** — the printer icon yields PDF, the other icon yields CSV "para bases de datos" | **Low** on CSV |
 | BBVA | Account + cards | `Cuentas → Extractos`; unified account and card statements from Banca Online | **PDF**, reportedly with `D`/`H` markers and **unsigned amounts** | **Medium-high** |
-| Mercado Pago | Fintech | `Informes y facturación → Reportes de ventas y extractos de cuenta → Todas las transacciones → Crear Reporte`, per period, arrives by email | Report generated on demand; file format not stated in the docs consulted | **Low-medium** |
+| Mercado Pago | Fintech | **Confirmed 2026-09-24 with two real files**: `Resumen de cuenta en pesos`, one PDF per person per month, reachable from `Informes y facturación → Reportes de ventas y extractos de cuenta` | **PDF generated from HTML** (`Producer: openhtmltopdf`), real text layer, layout-extractable — not a scan | **Low** — and self-verifying, see below |
 | Brubank | Fintech | App → `Productos → Resumen de cuenta` → pick year and month | **PDF, one month at a time, delivered by email** | **High** |
 
 Evidence and confidence:
@@ -133,7 +133,7 @@ Evidence and confidence:
 
 | Entity | People | Documents/month | Automatable | Parser |
 | --- | --- | --- | --- | --- |
-| Mercado Pago | **all three** | 3 | **Yes — API** | Medium |
+| Mercado Pago | **all three** | 3 | **Yes — API** | **Low** (confirmed by real files) |
 | Brubank | Person 1 only | 1 | No | Hard (PDF by email) |
 | BBVA | Person 1 only | 1-2 (account + card) | No | Medium-hard (`D`/`H`, unsigned) |
 | Banco Provincia | Person 2 only | 1-2 (account + card) | No | Easy (CSV) |
@@ -148,6 +148,50 @@ of the tree (`Assets:<entity>:<person>:USD`) but it has to be named before T-02 
 extrapolating three people times twelve months (36 emails a year). The real matrix puts
 Brubank on **one** person, so it is 12 PDFs a year, not 36. The alarm was overstated and is
 corrected here rather than quietly dropped.
+
+### Mercado Pago confirmed against two real files (2026-09-24)
+
+Two real statements, one month (August 2026), one per person: P1 and P3. Both are
+`RESUMEN DE CUENTA EN PESOS`, the same template, so **one parser covers all three people**.
+
+**The document carries its own checksum and the parse reconciles exactly.** Verified with a
+throwaway probe over both files:
+
+| Check | P1 (13 rows) | P3 (48 rows) |
+| --- | --- | --- |
+| Header arithmetic: opening + entries + withdrawals == closing | OK | OK |
+| Sum of positive rows == declared *Entradas* | OK | OK |
+| Sum of negative rows == declared *Salidas* | OK | OK |
+| Running-balance chain: each row's balance == previous + value | complete | complete |
+| Last parsed balance == declared closing balance | OK | OK |
+
+All five exact to the cent. This makes the import **self-verifying**: the importer can prove
+its own output complete and correctly signed *row by row*, and must **refuse to emit** rather
+than write a doubtful ledger. Same discipline as privacy guard #1: fail closed.
+
+What else the real files settled:
+
+- **The movement vocabulary is small and closed**: `Transferencia enviada`, `Transferencia
+  recibida`, `Rendimientos`, `Pago con`, `Dinero retirado`, `Dinero reservado`, and
+  `Pago <servicio>` — a bill payment whose description names the merchant.
+- **The operation-ID column supplies the deduplication key** T-04 requires: date + operation ID
+  + amount is a natural unique key.
+- **Mercado Pago purchases debit the cash account directly** (`Pago con` reduces the balance).
+  No card liability is involved, so this is the model's **case (c)** shape.
+- **The phantom-expense risk is not theoretical, and it is the majority of the volume.** 39 of
+  P3's 48 rows are transfers. Treating them as expenses would inflate the household total by
+  123,456 ARS in a single month, for a single person.
+- **`Dinero reservado` is not in the model.** It is a hold: not an expense, not a transfer to
+  another institution. It appears as a row with a value and a running balance, so the
+  reconciliation forces the importer to emit it. Proposed shape: within the same wallet, the
+  money moves from available to reserved (`Assets:MercadoPago:<person>:Caja` negative, a
+  `:Reservado` sub-account positive), which keeps the chain intact and records no expense.
+  **Open: confirm against a statement where the hold later materializes.**
+- **`Rendimientos` are investment returns** credited to the cash account. Per the model they
+  post to coarse, never-reported income. The fund itself is not in the tree and does not appear
+  in this report.
+- **Not covered yet**: whether Mercado Pago issues a `RESUMEN DE CUENTA EN DÓLARES`, and whether
+  a Mercado Pago card statement exists separately from the account statement.
 
 ### Derived order of work (revised after the matrix)
 
@@ -270,7 +314,15 @@ market rate. Confirm the exact presentation against a real statement before enco
       configured base directory** — `ledger_dir()` bounds the base only, and a base such
       as the repository's parent can still yield in-repo paths downstream.
       — depends on T-02.
-- [ ] T-05..N: One importer per source. **Blocked: awaiting the source inventory.**
+- [ ] T-05: **Mercado Pago importer — UNBLOCKED, format confirmed against two real files.**
+      Parses `Resumen de cuenta en pesos` (one PDF per person per month) into beancount
+      transactions, with the five reconciliation checks as a **hard gate**: it must refuse to
+      emit if the header arithmetic, the sum of positives against *Entradas*, the sum of
+      negatives against *Salidas*, the running-balance chain, or the closing balance fails.
+      — depends on T-04.
+- [ ] T-06..N: One importer per remaining source: Banco Provincia (CSV), BBVA (`D`/`H` PDF),
+      Brubank (monthly PDF by email). **Partially blocked: their real formats are still
+      unconfirmed**, although the inventory is known.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
@@ -430,11 +482,12 @@ market rate. Confirm the exact presentation against a real statement before enco
 
 ## Next step
 
-1. Commit T-02 as its work unit.
-2. **Put a real file through the model.** Five rounds in, the model has never met a real
-   statement; it is a well-reviewed hypothesis. The highest-leverage file is a **Mercado Pago
-   report** — the only source covering all three people, generated by the user from the panel,
-   and the least dependent on someone else's format. Either the model survives contact or it
-   falls, and both outcomes are information.
-3. T-03 (MEP and CCL series) is small, unblocked and independent of the user. The deflated view
-   needs it whenever the first real month is ingested.
+1. ~~Commit T-02~~ done (`669d0ac`). ~~Put a real file through the model~~ done — two Mercado
+   Pago statements, and **the model held**: the parse reconciles exactly on both files, and the
+   internal-transfer rule turned out to be the majority of the data rather than an edge case.
+2. **T-04, the import workflow contract**, then **T-05, the Mercado Pago importer**, now that the
+   format is known and self-verifying. The reconciliation gate is the acceptance criterion.
+3. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
+   first real month is ingested.
+4. Open for the user: whether Mercado Pago has a USD statement or a separate card statement, and
+   the real export formats inside BBVA, Banco Provincia and Brubank.
