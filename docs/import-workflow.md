@@ -74,10 +74,12 @@ human, is what the `key` is for.
 
 ```beancount
 2026-09-03 * "Comercio Ejemplo" "Compra"
-  key: "2026-09-03:op-000123:-15000.00"
+  key: "2026-09-03:123456789012:-15000.00"
   Expenses:Supermercado                 15000.00 ARS
   Liabilities:Provincia:P2:Visa        -15000.00 ARS
 ```
+
+The operation id is the raw digit string the statement prints, with no prefix.
 
 ## How deduplication is derived
 
@@ -198,19 +200,56 @@ overwrite an existing file, so re-running it never clobbers a live ledger.
 
 ## The importer contract
 
-Importers live in `src/expensuchis/importers.py` and subclass beangulp's `Importer`
-(`identify`, `account`, `extract`). Two rules the pipeline depends on:
+Importers live in the `src/expensuchis/importers/` package (`mercadopago_importer.py`
+holds the wiring, `mercadopago.py` the statement parser) and subclass beangulp's
+`Importer` (`identify`, `account`, `extract`). Two rules the pipeline depends on:
 
 - **A failing importer raises; it never returns partial entries.** A reconciliation check
   that does not hold means the document was not understood, and emitting the rows that
-  happened to parse writes a plausible, wrong ledger. T-05's five Mercado Pago checks gate
-  on this rule.
-- **Heavyweight dependencies are imported lazily, inside `extract`.** A PDF engine such as
-  `pypdfium2` must not be imported at module import time, so `identify` and the CLI stay
-  fast and a machine without the engine can still run everything else.
+  happened to parse writes a plausible, wrong ledger. The Mercado Pago parser gate runs
+  **seven** checks (header arithmetic, the two sum checks, the running-balance chain, the
+  closing balance, key uniqueness and the frozen vocabulary), and an unclassified purchase
+  or bill payment stops the import instead of being defaulted.
+- **Heavyweight dependencies are imported lazily, inside `identify` and `extract`.** A PDF
+  engine such as `pypdfium2` must not be imported at module import time, so `identify` and
+  the CLI stay fast and a machine without the engine can still run everything else. The
+  engine is read through `expensuchis.importers.pdf.read_pdf`, which imports it inside the
+  function; the counterparty map is created lazily at `extract` time, so constructing an
+  importer needs neither a ledger directory nor an environment variable.
 
-`get_importers()` returns one fresh importer instance per supported source. It is empty
-until T-05 registers the first one.
+**Whose statement it is — the per-person folder.** A Mercado Pago statement declares its
+account by its path:
+
+```
+statements/MercadoPago/<person>/<file>.pdf   ->   Assets:MercadoPago:<person>:Caja
+```
+
+The `<person>` component is the same token the ledger uses in its account names, so the
+derivation needs no lookup and no extra declaration file. A path outside that layout — a
+missing person folder, extra nesting, or an invalid token (empty, `.`, `..`, a `:`, or
+whitespace) — is refused with the expected shape, never guessed.
+
+`get_importers()` returns one fresh importer instance per supported source. It registers
+the Mercado Pago importer today; later tasks add Provincia, BBVA and Brubank.
+
+### Where each Mercado Pago movement kind posts
+
+The cash leg always posts `movement.amount` to `Assets:MercadoPago:<person>:Caja`; the
+counterpart leg posts its negation:
+
+| Movement kind | Counterpart account |
+| --- | --- |
+| `Transferencia enviada`, `Transferencia recibida`, `Dinero reservado` | `Assets:TransferenciaEnTransito` |
+| `Dinero retirado` | `Expenses:Efectivo` |
+| `Rendimientos` | `Income:<person>:Rendimientos` |
+| `Pago con`, `Pago <servicio>` | resolved through the counterparty map |
+
+A hold (`Dinero reservado`) is treated as a transfer in flight: it posts to the clearing
+account, so a non-zero clearing balance stays the signal that a side is missing. A
+withdrawal (`Dinero retirado`) is assumed already spent — there is no record of how the
+cash was later used — so it posts to `Expenses:Efectivo` rather than to a cash asset nobody
+would ever reconcile. Returns are coarse, never-reported income. Purchases and bill
+payments go through the map below, because only the user knows who the counterparty is.
 
 ## The counterparty map
 
@@ -254,19 +293,26 @@ names each unclassified row with enough context to decide — date, amount,
 description, and the raw name — plus the `counterparties.tsv` row to append:
 
 ```
-refused: importer-raised: 2 counterparties are not classified.
+refused: importer-raised: Importer MercadoPago refused <statement file>: 2 counterparties are not classified.
   2026-04-02  -25,000.00 ARS  "Cleaning service, paid in cash"  "Servicio Domestico Ejemplo"
     append to counterparties.tsv:
-      MercadoPago<TAB>Servicio Domestico Ejemplo<TAB>expense:Expenses:ServiciosPersonales
+      MercadoPago<TAB>Servicio Domestico Ejemplo<TAB>expense:<category>
   2026-04-05  -40,000.00 ARS  "Family support"  "Familiar Ejemplo"
     append to counterparties.tsv:
-      MercadoPago<TAB>Familiar Ejemplo<TAB>expense:Expenses:AyudaFamiliar
+      MercadoPago<TAB>Familiar Ejemplo<TAB>expense:<category>
 ```
 
-**That message shape is a contract the first importer (T-05) implements, not
-behaviour that exists today.** Nothing in the current code calls the map during
-`extract`: `CounterpartyMap` stores and resolves rows, but the refusal path and its
-message belong to T-05. Do not read this section as a description of running code.
+The `<statement file>` basename in that prefix comes from the pipeline, not the importer,
+and is a known leak path tracked in `odd/tasks/family-ledger.md` as **T-01d**.
+
+The suggested destination is literally `expense:<category>`: the importer **never chooses a
+category**, only the user can, so the placeholder is what the message prints. Replace
+`<category>` with an account from the expense tree when you append the row. The count is of
+**unique counterparties**, not movements, and the first movement that named each one
+supplies the displayed date, amount and description.
+
+The Mercado Pago importer raises this message during `extract`; `extract` then refuses
+with `importer-raised`, and nothing unclassified ever reaches the ledger.
 
 ### Asked once, remembered
 
@@ -308,6 +354,5 @@ point is that a professional is not a "personal service": the category is chosen
 
 ## Next step
 
-Writing the first importer is **T-05** (Mercado Pago), which also implements the
-counterparty-map refusal described above. The map's design is specified in this
-document.
+The first importer is wired: **T-05** (Mercado Pago) is implemented, and it owns the
+counterparty-map refusal described above. The map's design is specified in this document.

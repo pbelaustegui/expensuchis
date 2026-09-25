@@ -15,6 +15,7 @@ option "operating_currency" "ARS"
 2026-01-01 open Liabilities:BBVA:P1:Visa        ARS
 2026-01-01 open Liabilities:BBVA:P1:VisaUSD     USD
 2026-01-01 open Income:P1:Sueldo                ARS
+2026-01-01 open Income:P1:Rendimientos           ARS
 
 ;; --- P2: Banco Provincia, Mercado Pago (USD savings at Provincia) ---
 2026-01-01 open Assets:Provincia:P2:Caja        ARS
@@ -37,6 +38,7 @@ option "operating_currency" "ARS"
 2026-01-01 open Expenses:ServiciosDigitales:Suscripciones
 2026-01-01 open Expenses:ComidaFuera:Restaurantes
 2026-01-01 open Expenses:ServiciosPersonales
+2026-01-01 open Expenses:Efectivo
 2026-01-01 open Expenses:AyudaFamiliar
 
 ;; --- Equity ---
@@ -146,7 +148,7 @@ option "operating_currency" "ARS"
 
 ;; Scenario 8: money paid to a person for a service they perform (cleaning, repairs,
 ;; private classes). They have no account in this ledger, so the money leaves the
-;; household: the destination is ``expense:ServiciosPersonales``, never ``internal:``.
+;; household: the destination is ``expense:Expenses:ServiciosPersonales``, never ``internal:``.
 ;; A professional is not a personal service: a doctor is ``Expenses:Salud:Consultas``.
 2026-04-02 * "Servicio Domestico Ejemplo" "Cleaning service, paid in cash" #personal-service
   Expenses:ServiciosPersonales           25,000.00 ARS
