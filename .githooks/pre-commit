@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# Opt-in pre-commit hook: refuse a commit that would add data-bearing files
+# inside this public repository (privacy guard #2).
+#
+# Activate it once, from the repository root:
+#
+#     git config core.hooksPath .githooks
+#
+# It runs the package scan without requiring an activated virtualenv: it uses
+# `uv` when available and falls back to `PYTHONPATH=src python3`. If neither can
+# run the scan it fails closed. The hook is bypassable with `git commit
+# --no-verify`; CI is not.
+set -u
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+
+if command -v uv >/dev/null 2>&1; then
+    uv run python -m expensuchis.privacy
+    status=$?
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHONPATH=src python3 -m expensuchis.privacy
+    status=$?
+else
+    echo "privacy pre-commit: neither 'uv' nor 'python3' is available; refusing commit." >&2
+    exit 1
+fi
+
+if [ "$status" -eq 0 ]; then
+    exit 0
+fi
+
+if [ "$status" -eq 1 ]; then
+    echo "privacy pre-commit: data-bearing files found above; refusing commit." >&2
+    echo "Move them outside this public repository, or bypass with 'git commit --no-verify'." >&2
+else
+    echo "privacy pre-commit: the privacy scan could not run (exit $status); refusing commit." >&2
+fi
+exit 1

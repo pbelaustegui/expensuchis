@@ -1,0 +1,31 @@
+[project]
+name = "expensuchis"
+version = "0.1.0"
+description = "Beancount-based family ledger with a custom ingest pipeline."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "beancount==3.2.3",
+    "beangulp==0.2.0",
+    "beanquery==0.2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/expensuchis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

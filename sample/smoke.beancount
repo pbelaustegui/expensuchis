@@ -1,0 +1,14 @@
+option "title" "Expensuchis smoke sample (synthetic)"
+option "operating_currency" "ARS"
+
+2020-01-01 open Assets:Cash
+2020-01-01 open Expenses:Sample
+2020-01-01 open Equity:Opening-Balances
+
+2020-01-02 * "Synthetic opening balance"
+  Assets:Cash              1,000.00 ARS
+  Equity:Opening-Balances
+
+2020-01-03 * "Synthetic sample purchase"
+  Expenses:Sample            250.50 ARS
+  Assets:Cash
