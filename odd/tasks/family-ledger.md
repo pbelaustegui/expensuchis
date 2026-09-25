@@ -527,7 +527,12 @@ market rate. Confirm the exact presentation against a real statement before enco
       statement tokens and statement paths into the parent's context. The guard needs a redaction
       mode (token shape and file, never the token; a content hash, never the path), or the harness
       must filter its output. Until then the parent pipes it through a masking filter, which is a
-      workaround rather than a control.
+      workaround rather than a control. **Extended 2026-09-25 while wiring T-05b:** the same class of
+      leak lives in the pipeline's own refusals. `importer-raised` embeds `statement.name` — the
+      file's basename, which for at least one source names its holder — and the CLI prints it after
+      `refused:`. T-05b removed the reader's own path from that message (the importer wraps a reader
+      failure with the exception class only), but the basename comes from the pipeline (T-04b) and
+      stays until this task redacts it.
 - [x] T-04c: **The counterparty map design**, in `docs/import-workflow.md`: per-source variants,
       `internal:<account>` or `expense:<category>` destinations, asked once during review and
       remembered, never defaulted. Categories to add: `Expenses:ServiciosPersonales` and
@@ -562,7 +567,9 @@ market rate. Confirm the exact presentation against a real statement before enco
       first importer end to end, which is roughly twice the review budget and mixes two different
       kinds of knowledge — the statement's geometry and the pipeline's contract. The parser can be
       proved by the reconciliation checks alone; the wiring can be proved by the pipeline's own
-      gate matrix.
+      gate matrix. **Closed 2026-09-25** — commits `b218459` (importer), `8805d26` (probe),
+      `81cdc36` (docs); native review `review-9972c11f5e343edd` approved with **no correction**.
+      See *T-05b delivered* below.
 - [ ] T-06: Banco Provincia importers, **format confirmed against real files**: the account
       `Extracto de cuenta` (quarterly, dot-decimal, `Saldo` on every row → row-by-row
       self-verification) and the `Liquidación Visa` (monthly, Argentine comma-decimal, **trailing
@@ -1124,16 +1131,100 @@ the masking test covers the parser's diagnostics, not the probe's output surface
 - **The probe's generic exception path prints `{exc}`**, and an engine error can carry a real file
 path. The parse paths are masked; that one is not.
 
+Both were closed by T-05b (2026-09-25), with one correction to the record: the second claim was
+**stale** by the time it was implemented. The generic extraction path already printed
+`type(exc).__name__`, not `{exc}`; the one print with an unmasked shape was
+`read error: {exc.strerror}`, which names the OS message rather than the path but was uniformised
+to the exception class anyway. The audit that found this is in the T-05b section below.
+
+### T-05b decisions (2026-09-25, before implementation)
+
+Three questions the tracker had left open were settled with the user, because the parser
+knows the statement's shape but not the household's chart of accounts:
+
+- **How a statement declares whose account it is — per-person folder.** The cash account is
+  derived from the path: `statements/MercadoPago/<person>/<file>.pdf` posts to
+  `Assets:MercadoPago:<person>:Caja`. The `<person>` token is the same one the real ledger uses
+  in its account names, so the derivation needs no lookup and no new declaration file. Chosen
+  over a `--account` flag (three statements a month, three chances to mistype an account) and
+  over a source table in the ledger (a new format to design, validate and review). A statement
+  outside that layout is refused with the expected shape, never guessed.
+- **`Dinero retirado` is spending.** Four rows in P3's statement (the probe's counts, recorded
+  below) withdraw cash. The user's decision: since there is no record of how the cash is spent,
+  the withdrawal is *assumed spent at withdrawal time* and posts to `Expenses:Efectivo`. It is
+  not modelled as a cash asset waiting to be reconciled — that would create a balance nobody
+  will ever detail. The account is a convention the importer states and the user opens by hand;
+  the name is revisable in one line if the user prefers another.
+- **`Dinero reservado` goes to the clearing account.** One row in P3. The tracker's earlier
+  proposal (`Assets:MercadoPago:<person>:Reservado`) was declined in favour of
+  `Assets:TransferenciaEnTransito`, so a hold is treated as a transfer in flight. Consequence
+  recorded honestly: if the hold later releases back into the wallet, the clearing account
+  carries the offset until a second statement's side cancels it, and a non-zero clearing
+  balance remains the visible signal that something is unresolved.
+
+Also decided while writing the brief: `Rendimientos` posts to `Income:<person>:Rendimientos`
+(the sample's `Income:P1:Sueldo` shape, coarse and never reported), and an unclassified
+counterparty suggestion carries the literal placeholder `expense:<category>` — the importer
+never chooses a category, so the pinned message cannot pretend it did.
+
+The probe's own run over the two real Mercado Pago files (aggregate output only: hashes,
+pages, counts per kind, one line per check; no path, no datum) supplied the counts that made
+the withdrawal and hold decisions necessary rather than hypothetical: P1 has 13 movements
+(9 `Rendimientos`, 2 `Pago con`, 1 `Pago`, 1 transfer received) and P3 has 48 (25 sent and 14
+received transfers, 4 `Pago con`, 4 `Dinero retirado`, 1 `Dinero reservado`). The seven other
+PDFs in the statements directory are other sources and correctly fail the Mercado Pago parse.
+
+### T-05b delivered (2026-09-25) — the pipeline imports, and the reader leak it closed
+
+`src/expensuchis/importers/mercadopago_importer.py` is the wiring: it derives the cash account
+from the per-person folder, posts each kind to its decided account, resolves purchases and bill
+payments through `CounterpartyMap`, records the natural key as `key:` metadata, and registers in
+`get_importers()`. `src/expensuchis/importers/pdf.py` is the only PDF reader (lazy `pypdfium2`,
+pages joined with a form feed) and the probe now shares it. `tests/test_mercadopago_importer.py`
+and `tests/test_probe_mercadopago.py` are new; `docs/import-workflow.md` and the sample gained the
+contracts this task made concrete. 324 passed / 2 skipped, `ruff` clean, 2 opt-in pdfium tests in.
+
+**A leak the parent found and closed before the review.** `read_pdf` propagates `FileNotFoundError`
+whose `str` **is the real path**, and `extract` originally let it through: `pipeline.extract` re-wraps
+importer exceptions with their message, and the CLI prints them, so an agent running the CLI against
+an unreadable statement would have taken a real path into a remote model's context. `extract` now
+raises `StatementReadError("cannot read the statement text: <ClassName>")` `from None`; the pipeline's
+own `<statement file>` basename in that message stays open as **T-01d**. Two tests pin it, one of them
+through `pipeline.extract`.
+
+**End-to-end evidence (synthetic, in a `/tmp` ledger):** `bootstrap → identify → extract
+(8 entries) → report → approve → append → bean-check exit 0`, then a second `extract` reporting
+`entries: 0 skipped: 8`. The person, expense and income accounts must be opened by hand first, which
+is the documented boundary: `bootstrap` never invents account names. No real statement was read.
+
+**Native review `review-9972c11f5e343edd`** — high tier (the risk signal was `process_boundary`:
+the hygiene test spawns a subprocess), 4 lenses, 1538 changed lines, correction budget 200;
+**approved with no correction** on the last admitted event, 4/4 reviewers, authority burned.
+Fourteen advisory findings, none blocking: `R2-001` (WARNING, readability,
+`mercadopago_importer.py:231-261`), `R4-importer-account-raises-after-identify` (WARNING, resilience —
+beangulp may call `account()` on a path outside the layout; the pipeline never does),
+`R4-no-retry-on-reader-failure`, `R2-002`, `R2-003`, and nine `R3-*` confirmations. They are recorded
+here as later work, not as a reason to re-review this candidate.
+
+**Leak guard:** the baseline grew 76 → 78. `efectivo` is unavoidable (it names the withdrawal
+account the user chose); `comercio` was already in the docs and the reindexed token set caught it
+now. Each entry carries its reason in the ledger's baseline file.
+
+**The one moment a human is required is next.** The statements must live at
+`statements/MercadoPago/<person>/<file>.pdf`; the six purchases and bill payments across P1 and P3
+need rows in `counterparties.tsv`. The refusal lists each one with date, amount, description, raw
+name and the row to append, so the classification pass is mechanical. Re-running `extract` after
+each batch of rows produces a fresh digest and therefore a fresh approval; that is the gate working,
+not an obstacle.
+
 ## Next step
 
 1. Reconnaissance **closed for all four sources** (nine files, no OCR). T-01, T-01b, T-02, T-04a,
    T-04b, T-04c and **T-05a** are closed.
-2. **T-05b is next**: the importer wiring — the thin `pypdfium2` extractor declared per source, the
-   natural key from date + operation id + amount recorded as `key:` metadata, resolution through
-   `CounterpartyMap` with the refusal message T-04c specified, and registration in
-   `get_importers()`. It also inherits the probe's missing test and its one unmasked exception path
-   (see the two loose ends above). That is the moment the pipeline stops being a contract and
-   starts importing.
+2. **T-05b is closed and the importer is registered.** The next step is the **user's first real
+   import**: move the downloaded statements under `statements/MercadoPago/<person>/`, run
+   `extract`, classify the counterparties the refusal lists, and re-run. After that pass the map
+   is learned and later months resolve without a human, with the digest gate intact.
 3. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
    first real month is ingested.
 4. **T-01c** (`ruff format` drift across nine files) and **T-01d** (redact the leak guard's failure
