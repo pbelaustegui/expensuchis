@@ -352,7 +352,7 @@ found, so no refuter, no correction and no targeted validator were needed. Flow:
 `inspect` → `review start --consent=relay` → the `consent/v3` envelope relayed whole and **granted
 by the user** → the exact granted invocation → reviewer capture (`approved` on the first admitted
 event) → acknowledgement `gentle-ai.review-acknowledged/v1`, `authority: "burned"`. Committed as
-`285057f`.
+`5b92142`.
 
 Four advisory findings, all `SUGGESTION`, all `informational`, none blocking and none reopening this
 review — recorded as separate later work, never as a reason to re-run review on this candidate:
@@ -650,7 +650,7 @@ market rate. Confirm the exact presentation against a real statement before enco
 - 2026-09-24 — **T-02 delivered and then attacked.** `docs/accounting-model.md` (348 lines),
   `sample/family-model.beancount` (127 lines, `bean-check` clean) and
   `tests/test_family_model.py` (424 lines, 37 tests), after three review rounds.
-  **Closed 2026-09-24** — commit `669d0ac`.
+  **Closed 2026-09-24** — commit `e24ac71`.
 - 2026-09-24 — **the worst defect of the session: the assertion carrying the project's central
   claim was decorative.** `test_card_purchase_is_counted_as_an_expense_exactly_once` inspected
   one transaction and one category. An adversarial verification recorded the purchase twice
@@ -681,6 +681,24 @@ market rate. Confirm the exact presentation against a real statement before enco
   `Vivienda` is the home, not lodging. The agent had read the tree twice and a verification
   pass once, and none of them noticed, because all three were reading a tree instead of
   imagining a trip.
+
+- 2026-09-24 — **the git history was rewritten to remove real identifiers.** Real names and one
+  real aggregate amount taken from the user's statements had leaked into this repository through
+  this tracker and through one module docstring that a verification pass missed. The working tree
+  was scrubbed first, then `git filter-repo --replace-text` was run over all commits, and the
+  commit references in this document were remapped from `filter-repo`'s commit map. The rewrite is
+  verified by a **token sweep of every added line of every commit** against the statement
+  vocabulary: 876 tokens, 76 intersections, and every one of them is generic banking vocabulary
+  (`cuenta`, `saldo`, `crédito`, `pesos`) or a placeholder introduced by the scrub itself
+  (`apellido`, `nombre`, `ejemplo`). No personal identifier and no real amount remains. `origin`
+  was re-added after the rewrite, and the push is a separate, separately-authorised step.
+
+  **The lesson, recorded because it cost real exposure:** the first sweep reported the tree clean
+  and was wrong three ways — its patterns were longer than the leaked strings, single-word names
+  were never extracted, and amounts without decimals were skipped. **A leak is found by sweeping
+  tokens, not phrases**, because what leaked is a transformation of the source: truncated,
+  reformatted, recased. The inverted sweep — take the tokens from the statements, look for them in
+  everything ever committed — is also what found the leak site the verification pass missed.
 
 ## Next step
 
