@@ -521,6 +521,13 @@ market rate. Confirm the exact presentation against a real statement before enco
       Deliberately not done as part of T-04b: it is a large cosmetic diff across guarded files and
       belongs in its own reviewable unit. Discovered by T-04b's brief, which asked for a check the
       project never had.
+- [ ] T-01d: **Redact the leak guard's failure output.** A finding prints the offending token *and*
+      the statement path it came from — correct for a human at a terminal and a leak when an agent
+      runs the guard, because the agent's model is a remote API. Running it once during T-05a put
+      statement tokens and statement paths into the parent's context. The guard needs a redaction
+      mode (token shape and file, never the token; a content hash, never the path), or the harness
+      must filter its output. Until then the parent pipes it through a masking filter, which is a
+      workaround rather than a control.
 - [x] T-04c: **The counterparty map design**, in `docs/import-workflow.md`: per-source variants,
       `internal:<account>` or `expense:<category>` destinations, asked once during review and
       remembered, never defaulted. Categories to add: `Expenses:ServiciosPersonales` and
@@ -543,7 +550,10 @@ market rate. Confirm the exact presentation against a real statement before enco
       **local probe that prints aggregates only** (file content hash, page and movement counts, one
       line per check) so the real statements can be verified without any statement content entering
       an agent's context. — split out of T-05 because the parser and the wiring are separately
-      reviewable, and because the parser is the only place the format is encoded.
+      reviewable, and because the parser is the only place the format is encoded. **Closed
+      2026-09-25** — commit `43defe0`, reviewed twice: `review-87443c8fe0b24ecb` (approved, then
+      superseded by the fixture rewrite below) and `review-39398fe5ffe5a963` (approved with no
+      correction). See *T-05a delivered* below.
 - [ ] T-05b: **The Mercado Pago importer wiring.** The thin `pypdfium2` extractor declared per
       source, the natural key (date + operation id + amount) recorded as `key:` metadata,
       resolution through `CounterpartyMap` with the refusal message shape T-04c pinned, and
@@ -1037,19 +1047,97 @@ ordinary local processes whose output is an aggregate — a content hash, counts
 check. Debugging information is masked at the source, which makes masking a requirement **on the
 code**: a refusal message must not echo a raw statement line.
 
+### T-05a delivered (2026-09-25) — the parser, and the day the leak guard earned its keep
+
+`src/expensuchis/importers/` is now a package: `__init__.py` keeps the registry unchanged and
+`mercadopago.py` (471 lines) holds everything known about the statement format — the block
+structure, the frozen verb vocabulary, seven checks, and the masking rule for diagnostics.
+`tests/test_mercadopago_parser.py` (376) with three synthetic fixtures, and
+`tools/probe_mercadopago.py` (156): the only component that reads a real statement, and therefore
+the only place that decides what a human may see of one. Commit `43defe0`.
+
+**The masked shape dump paid for itself immediately.** The design input was the real text with every
+digit replaced and every non-template word reduced to `x`s of the same length, so the geometry
+survived and the content did not. It showed that a movement is a **block of one to three lines** (a
+compact line, or a date line, a description, and a payload line ending in two amounts), that the
+table header repeats on every page, and that `Rendimientos` rows are the volume rather than the
+exception. A parser written against an invented fixture would have passed its own tests and failed on
+the first real file. Against the two real statements it reconciles all seven checks on the **first
+run**, with **13 and 48 movements** and **39 transfers in the larger one** — the exact counts this
+tracker had recorded independently, before a parser existed.
+
+**The one thing reconciliation cannot see, checked separately.** The operation id is taken as the
+last token before the amount pair, and no reconciliation check validates that choice: a wrong id
+still balances. A masked structural probe confirms every payload line carries one (13/13, 48/48),
+that all of them are digits 12 to 13 characters long, and that they are unique per statement.
+
+**Four of the seven checks are cross-validation, not independent alarms.** The chain plus the two sum
+checks imply the header arithmetic and the closing balance, so no mutation can break exactly one of
+the four. A test pins that rather than letting the matrix look stronger than it is; the other three
+checks *can* fail alone, and the mutation matrix shows all seven individually reachable.
+
+#### The leak guard refused the commit, and it was right twice
+
+The first commit attempt was refused: **42 statement tokens** in the new content. Classified, they
+were four *template* words (`Periodo`, `DETALLE DE MOVIMIENTOS`, `Valor`, `Movimiento` — every
+document of the source carries them, and a fixture that omits them proves nothing), seven words the
+fixtures had *invented* into plausibility (a Spanish merchant name, a city name, a banking noun),
+and six round amounts. Only the template words are unavoidable. The fixtures were regenerated with
+**non-word names** (`Zxqv`, `Qwerty`, `Plugh`) and **non-round amounts**, and the four template words
+were added to the reviewed baseline with a written reason each (72 → 76). The fixture module's
+docstring now states both properties, so the next person to edit a fixture does not "fix" the names
+back into Spanish and trip the guard again.
+
+**Two facts about the control, learned the hard way.**
+
+1. **The guard scans the staged content, not the working tree.** Regenerating the fixtures changed
+the files but not the index, so the guard kept reporting the *old* bytes until they were re-staged —
+25 phantom findings that looked like a broken fixture. Recorded because the failure mode is a
+misleading signal, and the next agent will read it the same way.
+2. **Its failure output is written for a human at a terminal, and an agent is not one.** A finding
+names the token *and* the statement it came from, so one run put a list of statement tokens and
+statement paths into the parent's (remote) model context. The classification was still done —
+through a masking filter written on the spot, and the tokens turned out to be generic words and
+round numbers rather than names — but the control itself became a leak path. Opened as **T-01d**.
+
+#### Native reviews of T-05a
+
+The candidate was reviewed twice, and the second one is the one that counts:
+
+- `review-87443c8fe0b24ecb` — medium tier, one lens, 1131 changed lines: **approved with no
+correction**. Advisory, none blocking: `R3-001` (`mercadopago.py:194-228`, WARNING), `R3-002`
+(`test_mercadopago_parser.py:315-328`, SUGGESTION), `R3-003` (`mercadopago.py:383-387`,
+SUGGESTION).
+- The leak-guard refusal then forced the fixture rewrite, so the approved bytes stopped being the
+delivered bytes: **the amended candidate was reviewed again** instead of shipped on the first
+approval. `review-39398fe5ffe5a963` — medium tier, one lens, 1137 changed lines: **approved with no
+correction**, advisory `R3-BOUNDARY_DETECTION`, `R3-MASKING_COMPLETENESS` and
+`R3-RECONCILIATION_DETERMINISM` (all SUGGESTION, none blocking). Authority burned on both.
+
+Re-reviewing instead of disclosing the delta was the deliberate choice: a review that approves bytes
+nobody ships is a receipt for the wrong artefact.
+
+#### Two loose ends T-05b inherits
+
+- **The probe has no test.** It is the component that touches real data and the one nothing pins:
+the masking test covers the parser's diagnostics, not the probe's output surface.
+- **The probe's generic exception path prints `{exc}`**, and an engine error can carry a real file
+path. The parse paths are masked; that one is not.
+
 ## Next step
 
 1. Reconnaissance **closed for all four sources** (nine files, no OCR). T-01, T-01b, T-02, T-04a,
-   T-04b and **T-04c** are closed.
-2. **T-05, the Mercado Pago importer, is next and is the whole point of the last three tasks.**
-   It parses `Resumen de cuenta en pesos` (one real PDF per person per month, format confirmed
-   against two real files) into beancount transactions, with the five reconciliation checks as a
-   **hard gate** it refuses to emit past, registers itself in `get_importers()`, and implements the
-   counterparty-map refusal whose message shape T-04c pinned. It is the first importer, so it is
-   also where the contract stops being a document and starts being a pipeline.
+   T-04b, T-04c and **T-05a** are closed.
+2. **T-05b is next**: the importer wiring — the thin `pypdfium2` extractor declared per source, the
+   natural key from date + operation id + amount recorded as `key:` metadata, resolution through
+   `CounterpartyMap` with the refusal message T-04c specified, and registration in
+   `get_importers()`. It also inherits the probe's missing test and its one unmasked exception path
+   (see the two loose ends above). That is the moment the pipeline stops being a contract and
+   starts importing.
 3. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
    first real month is ingested.
-4. **T-01c** (`ruff format` drift across nine files) remains open and deliberately untouched: it is
-   a cosmetic diff across guarded files and belongs in its own reviewed unit.
+4. **T-01c** (`ruff format` drift across nine files) and **T-01d** (redact the leak guard's failure
+   output) remain open and deliberately untouched: both are cosmetic-or-control changes and belong
+   in their own reviewed units.
 5. Still open: whether Mercado Pago issues a `RESUMEN DE CUENTA EN DÓLARES`, and whether it has a
    card statement separate from the account statement.
