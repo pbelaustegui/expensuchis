@@ -105,8 +105,8 @@ parser.
 
 | Source | Type | What is downloaded | Delivery format | Parser difficulty |
 | --- | --- | --- | --- | --- |
-| Banco Provincia | Bank account | `Cuentas → Extractos Electrónicos`, per account | **PDF or CSV** — the printer icon yields PDF, the other icon yields CSV "para bases de datos" | **Low** on CSV |
-| BBVA | Account + cards | `Cuentas → Extractos`; unified account and card statements from Banca Online | **PDF**, reportedly with `D`/`H` markers and **unsigned amounts** | **Medium-high** |
+| Banco Provincia | Account + Visa card | `Cuentas → Extractos Electrónicos` | **PDF** downloaded here (the bank also documents a CSV export). The account extracto is **quarterly**, dot-decimal, with `Saldo` populated on every row; the card liquidación is monthly, Argentine comma-decimal, with **trailing minus** and `TC` | **Low** on the account, **medium** on the card |
+| BBVA | Account + cards (Visa, Mastercard, unified) | `Cuentas → Extractos`, downloaded per product | **PDF, text layer present** — requires `pypdfium2`; `pypdf` returns polluted text and no layout. `DÉBITO`/`CRÉDITO` columns with a leading minus, plus a `SALDO` column | **Low-medium** (confirmed with real files) |
 | Mercado Pago | Fintech | **Confirmed 2026-09-24 with two real files**: `Resumen de cuenta en pesos`, one PDF per person per month, reachable from `Informes y facturación → Reportes de ventas y extractos de cuenta` | **PDF generated from HTML** (`Producer: openhtmltopdf`), real text layer, layout-extractable — not a scan | **Low** — and self-verifying, see below |
 | Brubank | Fintech | App → `Productos → Resumen de cuenta` → pick year and month | **PDF, one month at a time, delivered by email** | **High** |
 
@@ -192,6 +192,55 @@ What else the real files settled:
   in this report.
 - **Not covered yet**: whether Mercado Pago issues a `RESUMEN DE CUENTA EN DÓLARES`, and whether
   a Mercado Pago card statement exists separately from the account statement.
+
+### BBVA and Banco Provincia confirmed against six real files (2026-09-24)
+
+Six more files: one month of BBVA (August 2026, account + Visa + Mastercard + unified) and a
+**quarterly** period for Banco Provincia (account extracto + Visa liquidación). **Neither required
+OCR.**
+
+| Source | Document | Text extraction | Number format | Running balance |
+| --- | --- | --- | --- | --- |
+| BBVA | Account, Visa, Mastercard, unified | **`pypdfium2` only** — `pypdf` returns polluted text and zero layout | Argentine (`12.345,67`) | yes, a `SALDO` column |
+| Provincia | `Extracto de cuenta` (`Frecuencia TRIMESTRAL`) | `pypdf` or `pypdfium2` | **dot decimal (`12345.67`)** — beancount's own format | yes, 228 movement rows carry `Saldo` |
+| Provincia | `Liquidación Visa` (card) | `pypdf` or `pypdfium2` | Argentine (`12.345,67`) | not yet confirmed |
+
+**Two corrections to this document's own earlier claims, both caused by the real files:**
+
+1. **The research was wrong about BBVA.** It predicted `D`/`H` markers with unsigned amounts. The
+   real statement has **separate `DÉBITO` and `CRÉDITO` columns** with a leading minus, plus a
+   running `SALDO`. BBVA is not the hardest source; it needed a **different extractor**, not OCR.
+2. **A first probe wrongly reported BBVA as having no text layer.** The probe used
+   `extraction_mode='layout'` with no fallback; that mode returns zero characters for these files
+   while the plain mode returns thousands. The alarm was the probe's bug, not the file's.
+
+**The extractor is a per-source decision, and that is now a design requirement.** `pypdf` is
+enough for Mercado Pago and Provincia and fails on BBVA; `pypdfium2` handles all three. A source's
+importer must declare its extractor, and the reconciliation checks are what prove the choice was
+right. This makes `pypdfium2` a real runtime dependency for T-07.
+
+Traps the real files exposed, none of which were in this document before:
+
+- **Two number formats inside one bank.** Provincia's *account* extracto is dot-decimal
+  (`12345.67`) — precisely beancount's format — while its *card* liquidación is Argentine
+  comma-decimal (`12.345,67`). A single global normalizer breaks one of the two.
+- **Trailing minus** (`12.345,67-`) in the card liquidación, for payments. A parser that looks
+  only for a leading minus reads a payment as a purchase, which corrupts the balance and the
+  total at the same time and in the same direction.
+- **The card statement's sign is inverted relative to the account's.** On a card, a purchase is
+  positive (the debt grows); in an account, money leaving is negative.
+- **Two amount columns for USD** in the BBVA card statement (`PESOS` and `DÓLARES` on the same
+  row). This is the model's **case (a)** confirmed with real data; the administrative rate is
+  implicit in the two figures.
+- **Installments are `C.NN/NN` in both card statements**, and the date column carries the
+  **original purchase month**, so one statement mixes months by design. Both `C.07/12` and
+  `C.03/03` appear in the Provincia liquidación.
+- **The `TC` exchange rate** appears in Provincia's card liquidación, exactly where the model said
+  the administrative rate lives.
+- **Merchant prefixes** (`PAGOAPP*`, `SHOPONLINE*`, `BUSCADOR *`) need stripping before categorization, and
+  `USD` appears inside the descriptions of USD items.
+- **`PAGO CON VISA DEBITO` and `EXTRACCION ELEC+CASH`** in the BBVA account are direct debits, so
+  that account behaves as model **case (c)**: no card liability involved.
 
 ### Derived order of work (revised after the matrix)
 
@@ -320,9 +369,17 @@ market rate. Confirm the exact presentation against a real statement before enco
       emit if the header arithmetic, the sum of positives against *Entradas*, the sum of
       negatives against *Salidas*, the running-balance chain, or the closing balance fails.
       — depends on T-04.
-- [ ] T-06..N: One importer per remaining source: Banco Provincia (CSV), BBVA (`D`/`H` PDF),
-      Brubank (monthly PDF by email). **Partially blocked: their real formats are still
-      unconfirmed**, although the inventory is known.
+- [ ] T-06: Banco Provincia importers, **format confirmed against real files**: the account
+      `Extracto de cuenta` (quarterly, dot-decimal, `Saldo` on every row → row-by-row
+      self-verification) and the `Liquidación Visa` (monthly, Argentine comma-decimal, **trailing
+      minus**, `C.NN/NN` installments, `TC` rate). — depends on T-04.
+- [ ] T-07: BBVA importers, **format confirmed against real files**: the account
+      (`DÉBITO`/`CRÉDITO`/`SALDO`) and the Visa and Mastercard statements (**`PESOS` and
+      `DÓLARES` columns**, `C.NN/NN` installments). Requires adding `pypdfium2` as a declared
+      runtime dependency; `pypdf` cannot read these files. — depends on T-04.
+- [ ] T-08..N: Brubank importer (monthly PDF by email, one document a month for one person).
+      **Blocked: no real file yet**; at that volume manual entry remains a legitimate alternative.
+      — depends on T-04.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
