@@ -128,6 +128,7 @@ REJECTIONS: dict[str, str] = {
     ),
     "not_valid_json": "not json at all",
     "top_level_not_a_list_or_object": "42",
+    "empty_payload": "[]",
 }
 
 
@@ -236,6 +237,40 @@ def test_load_refuses_a_cache_holding_the_wrong_series(ledger: Path) -> None:
         FxCache(paths).load(Series.CCL)
 
 
+CACHE_RATE_REJECTIONS: dict[str, tuple[str, str]] = {
+    # (compra, venta) as raw JSON tokens, chosen so a naive `buy <= 0 or sell <= 0 or
+    # buy > sell` check would *not* already reject them, isolating the finiteness bug.
+    "nan": ('"NaN"', '"820.5"'),
+    "signaling_nan": ('"sNaN"', '"820.5"'),
+    "infinity": ('"Infinity"', '"Infinity"'),
+    "negative_infinity": ('"-Infinity"', '"-Infinity"'),
+    "json_integer": ("800", '"820.5"'),
+    "json_float": ("800.5", '"820.5"'),
+    "unparseable_string": ('"not-a-number"', '"820.5"'),
+    "zero": ('"0"', '"820.5"'),
+    "negative": ('"-5"', '"820.5"'),
+}
+
+
+@pytest.mark.parametrize("rates", CACHE_RATE_REJECTIONS.values(), ids=CACHE_RATE_REJECTIONS.keys())
+def test_load_rejects_a_non_finite_or_non_string_cached_rate(
+    ledger: Path, rates: tuple[str, str]
+) -> None:
+    """R3-002: a cached rate must be a JSON string parsing to a finite positive Decimal."""
+    compra_json, venta_json = rates
+    paths = LedgerPaths()
+    paths.fx_dir().mkdir(parents=True, exist_ok=True)
+    payload = (
+        '{"version": 1, "series": "MEP", "casa": "bolsa", "source_id": "argentinadatos", '
+        '"source_url": "https://example.invalid", "fetched_at": "2024-01-09T00:00:00+00:00", '
+        f'"quotes": [{{"fecha": "2024-01-02", "compra": {compra_json}, "venta": {venta_json}}}]}}'
+    )
+    paths.fx_series("bolsa").write_text(payload, encoding="utf-8")
+
+    with pytest.raises(CacheError):
+        FxCache(paths).load(Series.MEP)
+
+
 def test_refresh_overwrites_a_previous_cache(ledger: Path) -> None:
     paths = LedgerPaths()
     FxCache(
@@ -251,6 +286,22 @@ def test_refresh_overwrites_a_previous_cache(ledger: Path) -> None:
     reloaded = FxCache(paths).load(Series.MEP)
     assert len(reloaded.quotes) == 1
     assert reloaded.quotes[0].date == dt.date(2024, 2, 1)
+
+
+def test_refresh_never_overwrites_a_good_cache_when_the_fetch_is_empty(ledger: Path) -> None:
+    """R3-001: an empty payload must not atomically replace a previously good cache."""
+    paths = LedgerPaths()
+    FxCache(
+        paths,
+        source=ArgentinaDatosSource(transport=_FakeTransport(_fixture_bytes("bolsa_sample.json"))),
+    ).refresh(Series.MEP)
+    cache_path = paths.fx_series("bolsa")
+    before = cache_path.read_bytes()
+
+    with pytest.raises(PayloadError):
+        FxCache(paths, source=ArgentinaDatosSource(transport=lambda url: b"[]")).refresh(Series.MEP)
+
+    assert cache_path.read_bytes() == before
 
 
 # --------------------------------------------------------------------------------- rate_at

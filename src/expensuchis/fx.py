@@ -24,10 +24,10 @@ rewrites the whole cache file for one series.
 project's own peril elsewhere (see :mod:`expensuchis.numbers`); a market rate is
 worse to get wrong, because it is silently multiplied into every USD-denominated
 report. :func:`ArgentinaDatosSource.fetch` therefore rejects anything the payload
-does not prove, rather than tolerating it: a non-list payload, an entry with
-missing or wrongly typed fields, a ``casa`` that does not match the requested
-series, an unparseable date, a non-positive rate, ``compra > venta``, or a
-duplicate date. Quotes are returned sorted by date.
+does not prove, rather than tolerating it: a non-list payload, an empty payload,
+an entry with missing or wrongly typed fields, a ``casa`` that does not match
+the requested series, an unparseable date, a non-finite or non-positive rate,
+``compra > venta``, or a duplicate date. Quotes are returned sorted by date.
 
 **The cache never refetches on its own.** :meth:`FxCache.load` reads the local
 JSON file and raises :class:`CacheError` on anything it cannot trust — a missing
@@ -158,7 +158,10 @@ def _urllib_get(url: str) -> bytes:
 def _to_decimal(value: object, where: str) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, (Decimal, int)):
         raise PayloadError(f"{where}: expected a number, found {value!r}")
-    return value if isinstance(value, Decimal) else Decimal(value)
+    parsed = value if isinstance(value, Decimal) else Decimal(value)
+    if not parsed.is_finite():
+        raise PayloadError(f"{where}: expected a finite number, found {parsed}.")
+    return parsed
 
 
 def _parse_quote(item: object, series: Series, index: int) -> Quote:
@@ -212,6 +215,11 @@ def _parse_payload(raw: bytes, series: Series, url: str) -> list[Quote]:
     if not isinstance(payload, list):
         raise PayloadError(
             f"Payload from {url} is not a JSON array, found {type(payload).__name__}."
+        )
+    if not payload:
+        raise PayloadError(
+            f"Payload from {url} is an empty JSON array; refusing to treat it as a valid "
+            f"{series.name} series."
         )
 
     quotes = [_parse_quote(item, series, index) for index, item in enumerate(payload)]
@@ -341,15 +349,54 @@ def _write_cache_atomic(path: Path, cached: CachedSeries) -> None:
         raise
 
 
+def _decimal_from_cache(value: object, path: Path, index: int, field: str) -> Decimal:
+    """Parse one cached rate: must be a JSON string holding a finite ``Decimal``.
+
+    Rejects a non-string value (including a bare JSON number or float) before it
+    ever reaches :class:`Decimal`, and rejects ``NaN``/``sNaN``/``Infinity``/
+    ``-Infinity`` explicitly, so a raw :class:`decimal.InvalidOperation` never
+    escapes to a caller that only expects :class:`CacheError`.
+    """
+    if not isinstance(value, str):
+        raise CacheError(
+            f"Corrupt fx cache {path}: quote {index} has a non-string {field}: {value!r}."
+        )
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as exc:
+        raise CacheError(
+            f"Corrupt fx cache {path}: quote {index} has an unparseable {field} {value!r}: {exc}"
+        ) from exc
+    if not parsed.is_finite():
+        raise CacheError(
+            f"Corrupt fx cache {path}: quote {index} has a non-finite {field}: {value!r}."
+        )
+    return parsed
+
+
 def _quote_from_json(item: object, path: Path, index: int) -> Quote:
     if not isinstance(item, dict):
         raise CacheError(f"Corrupt fx cache {path}: quote {index} is not an object.")
     try:
-        quote_date = dt.date.fromisoformat(item["fecha"])
-        buy = Decimal(item["compra"])
-        sell = Decimal(item["venta"])
-    except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
+        fecha = item["fecha"]
+        compra = item["compra"]
+        venta = item["venta"]
+    except KeyError as exc:
         raise CacheError(f"Corrupt fx cache {path}: malformed quote {index}: {exc}") from exc
+
+    if not isinstance(fecha, str):
+        raise CacheError(
+            f"Corrupt fx cache {path}: quote {index} has a non-string fecha: {fecha!r}."
+        )
+    try:
+        quote_date = dt.date.fromisoformat(fecha)
+    except ValueError as exc:
+        raise CacheError(
+            f"Corrupt fx cache {path}: quote {index} has an unparseable fecha {fecha!r}: {exc}"
+        ) from exc
+
+    buy = _decimal_from_cache(compra, path, index, "compra")
+    sell = _decimal_from_cache(venta, path, index, "venta")
     if buy <= 0 or sell <= 0 or buy > sell:
         raise CacheError(
             f"Corrupt fx cache {path}: quote {index} ({quote_date}) has an invalid rate: "
@@ -442,7 +489,9 @@ class FxCache:
         """Fetch ``series`` from the source and atomically rewrite its cache file.
 
         There is no incremental fetch (the source has no such endpoint), so this
-        always replaces the previous cache contents wholesale.
+        always replaces the previous cache contents wholesale. A failed fetch or a
+        payload that fails validation (including an empty payload) raises before
+        anything is written, so an existing good cache file is left untouched.
         """
         quotes = self._source.fetch(series)
         cached = CachedSeries(
