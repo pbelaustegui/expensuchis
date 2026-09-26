@@ -1,0 +1,14 @@
+Extracto de Cuenta
+Fecha Concepto Importe Fecha Valor Saldo
+SALDO ANTERIOR 1000.37
+01/01/2026 sueldo Zxqv Qwerty 2500.13 01-01 3500.50
+02/01/2026 deposito Zxqv 320.09 02-01 3820.59
+03/01/2026 credito Zxqv Plugh 77.51 03-01 3898.10
+04/01/2026 haberes Zxqv 1250.63 04-01 5148.73
+05/01/2026 compra Zxqv Uno -150.07 05-01 4998.66
+06/01/2026 compra tarjeta Zxqv -400.11 06-01 4598.55
+07/01/2026 pago Zxqv Servicio -89.31 07-01 4509.24
+08/01/2026 pago visa Zxqv -700.23 08-01 3809.01
+09/01/2026 intereses 12.41 09-01 3821.42
+Fecha Valor                       Importe
+$ 3821.42                         $ 1339.72

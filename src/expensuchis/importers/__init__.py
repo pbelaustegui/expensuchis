@@ -32,6 +32,7 @@ from __future__ import annotations
 from beangulp import Importer
 
 from .mercadopago_importer import MercadoPagoImporter
+from .provincia_importer import ProvinciaImporter
 
 __all__ = ["get_importers"]
 
@@ -39,8 +40,9 @@ __all__ = ["get_importers"]
 def get_importers() -> list[Importer]:
     """Return one fresh importer instance per supported source.
 
-    Mercado Pago is registered today; T-06 Provincia, T-07 BBVA and T-08 Brubank
-    add theirs. The pipeline resolves its default importers through this function,
-    so registering a source is a one-line change that every command sees.
+    Mercado Pago and the Provincia account extracto are registered; the Provincia
+    card liquidación (T-06b), BBVA (T-07) and Brubank (T-08) add theirs. The
+    pipeline resolves its default importers through this function, so registering
+    a source is a one-line change that every command sees.
     """
-    return [MercadoPagoImporter()]
+    return [MercadoPagoImporter(), ProvinciaImporter()]

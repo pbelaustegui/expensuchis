@@ -616,7 +616,7 @@ def test_get_importers_registers_mercado_pago_without_a_ledger(
 ) -> None:
     monkeypatch.delenv(ENV_VAR, raising=False)
     importers = get_importers()
-    assert [importer.name for importer in importers] == ["MercadoPago"]
+    assert [importer.name for importer in importers] == ["MercadoPago", "Provincia"]
 
 
 def test_importing_the_importer_package_does_not_import_pypdfium2() -> None:

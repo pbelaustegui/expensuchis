@@ -1,0 +1,14 @@
+Extracto de Cuenta
+Fecha Concepto Importe Fecha Valor Saldo
+SALDO ANTERIOR 800.29
+01/02/2026 compra DE Zxqv Uno (20345678901) Qwerty -150.07 01-02 650.22
+02/02/2026 compra DE Zxqv Uno (20345678902) Qwerty -60.13 02-02 590.09
+03/02/2026 compra DE Zxqv Uno A (20345678903) Qwerty -25.55 03-02 564.54
+04/02/2026 compra TARJETA 05/12/25 18:30 Zxqv. Comercio Quince -88.41 04-02 476.13
+05/02/2026 compra TARJETA 06/12/25 09:15 Zxqv. Comercio Quince -12.09 05-02 464.04
+06/02/2026 pago DE Zxqv/Plugh (20345678904) Qwerty -44.44 06-02 419.60
+07/02/2026 compra Plugh 05/12 efectivo (20345678905) Qwerty Zxqv -31.57 07-02 388.03
+08/02/2026 pago DE Zxqv,Plugh 12 (20345678906) Qwerty -9.99 08-02 378.04
+
+Fecha Valor                       Importe
+$ 378.04                          $ 422.25
