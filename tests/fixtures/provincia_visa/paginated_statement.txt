@@ -1,0 +1,28 @@
+(0051) Banco Zxqv Qwerty S.A. CUIT 30-99999999-9
+IVA: Zxqv Qwerty Plugh Resp. Insc.
+Periodo Zxqv CIERRE 28 Marzo 26 VENCIMIENTO 02 Abril 26
+Domicilio Zxqv Qwerty SUC: 1234
+Cierre Anterior Fec.: 03 Febrero 26
+Cierre Posterior Fec.: 03 Abril 26
+Zxqv Qwerty Plugh Xqvor seis
+Zxqv Qwerty Plugh Xqvor siete
+Zxqv Qwerty Plugh Xqvor ocho
+Limite de Compras: COMPRA $ 137.284,59 Compras en USD $ 4.318,72
+SALDO ANTERIOR 4.618,73 53,17
+____________________________________________________________
+26 Enero 12 400777 Zxqv Qwerty 111,11
+
+(0051) Banco Zxqv Qwerty S.A. CUIT 30-99999999-9
+IVA: Zxqv Qwerty Plugh Resp. Insc.
+Periodo Zxqv CIERRE 28 Marzo 26 VENCIMIENTO 02 Abril 26
+Domicilio Zxqv Qwerty SUC: 1234
+Cierre Anterior Fec.: 03 Febrero 26
+Cierre Posterior Fec.: 03 Abril 26
+Zxqv Qwerty Plugh Xqvor seis
+Zxqv Qwerty Plugh Xqvor siete
+Zxqv Qwerty Plugh Xqvor ocho
+Limite de Compras: COMPRA $ 137.284,59 Compras en USD $ 4.318,72
+26 Febrero 03 400888 Zxqv Plugh 222,22
+13 400999 Qwerty Cine C.02/04 55,55
+Totales 0042 Total Consumos de Tarjeta Zxqv 388,88 * 0,00 *
+IMPUESTO DE SELLOS $ 1,11
