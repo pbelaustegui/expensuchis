@@ -683,7 +683,16 @@ market rate. Confirm the exact presentation against a real statement before enco
       counterparty, so the parse is straightforward; its one new problem is
       `De una cuenta tuya - <banco>`, which is internal, and its categorization is name matching
       rather than verb parsing. — depends on T-04. **Reconnaissance closed 2026-09-26** (masked, one real
-      file): see *T-08 reconnaissance* below.
+      file): see *T-08 reconnaissance* below. **Owner decisions 2026-09-26:** (1) `Intereses
+      pagados` posts to `Income:<person>:Intereses`, as in Provincia; (2) `Imp. Trans. Financieras`
+      is a header-only total and emits no entry, and a row carrying it refuses the import; (3)
+      `#Ref` is the identity part of the natural dedup key (periods are user-chosen and overlap),
+      its global uniqueness to be re-checked when a second, overlapping statement arrives. The
+      two-digit year reads as 20aa. `De una cuenta tuya - <bank>` follows the 2026-09-24 clearing
+      account decision. Units, as in T-06b: **T-08a** the pure-text parser with its reconciliation
+      gate and fixtures; **T-08b** the importer wiring; **T-08c** the acceptance probe against the
+      real file. TDD strict, runner `uv run pytest`. T-08a route: delegated direct (writer
+      trigger: parser, fixtures, tests).
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
