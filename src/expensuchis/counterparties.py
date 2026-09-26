@@ -3,8 +3,11 @@
 The same person is identified differently in every entity: P1 is
 ``APELLIDO NOMBRE J`` at Provincia, ``Nombre Apellido`` at BBVA and
 ``Nombre`` in Mercado Pago (these are placeholders, not real names). A canonical
-name list would fail, so the map is keyed by the pair ``(source, raw_name)``
-exactly as the statement spells it, and it is case-sensitive on purpose.
+name list would fail, so the map is keyed by the pair ``(source, raw_name)`` that
+the importer supplies, and it is case-sensitive on purpose. Mercado Pago supplies
+the raw statement name; the Provincia account extracto supplies a *normalized*
+counterparty identity (the merchant without the per-row id and date/time), so one
+merchant resolves across rows that differ only in that noise.
 
 The names are personal data, so the map is a flat, append-only TSV inside
 ``EXPENSUCHIS_LEDGER_DIR``, next to the ledger and never in this public

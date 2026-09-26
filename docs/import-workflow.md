@@ -257,11 +257,14 @@ The map in `counterparties.tsv`, in the ledger directory, answers the question n
 importer can derive: **who was this?** It is the only place personal names are
 stored, and the only place a raw statement string becomes an account.
 
-### Key: `(source, raw_name)`, exact and case-sensitive
+### Key: `(source, raw_name)`, the identity the importer supplies
 
-The key is the source (`MercadoPago`, `Provincia`, ...) paired with the **raw name
-exactly as the statement spells it**, and it is case-sensitive on purpose.
-Per-source variants are the norm, not an accident: the same person reads
+The key is the source (`MercadoPago`, `Provincia`, ...) paired with the
+**counterparty identity the importer supplies**, and it is case-sensitive on
+purpose. Mercado Pago supplies the raw statement name; the Provincia account
+extracto supplies a **normalized** identity (the merchant with the per-row id and
+date/time stripped), so one merchant resolves across rows that differ only in that
+noise. Per-source variants are the norm, not an accident: the same person reads
 `APELLIDO NOMBRE J` at Banco Provincia, `Nombre Apellido` at BBVA and a first name
 or a nickname at Mercado Pago. One row per spelling.
 
