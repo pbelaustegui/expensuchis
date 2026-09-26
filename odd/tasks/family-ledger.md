@@ -519,6 +519,10 @@ market rate. Confirm the exact presentation against a real statement before enco
       `CacheError`, `Infinity` loads, and cached rates are not required to be strings; R3-003 most
       `_read_cache` rejection branches are untested; R3-004 `http.client.HTTPException` (e.g.
       `IncompleteRead`) escapes `fetch` unwrapped instead of `FetchError`.
+      **R3-001 and R3-002 fixed 2026-09-26** in `493043d` (RED: 7 failed; GREEN: 599 passed / 2
+      skipped, ruff clean). Assessed medium, `review_due=false` (`under_budget`, 120 lines): pending
+      in the slice from boundary `7342258` until a later commit reaches the budget. R3-003 and
+      R3-004 remain open.
 - [x] T-04a: **Import primitives.** `LedgerPaths` (the ledger directory layout, every derived
       path validated to be outside every discoverable repository, not just the base),
       `numbers.py` (the locale amount parser: Argentine and plain formats, leading and
