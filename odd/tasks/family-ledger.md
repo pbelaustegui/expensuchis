@@ -682,7 +682,8 @@ market rate. Confirm the exact presentation against a real statement before enco
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
       `De una cuenta tuya - <banco>`, which is internal, and its categorization is name matching
-      rather than verb parsing. — depends on T-04.
+      rather than verb parsing. — depends on T-04. **Reconnaissance closed 2026-09-26** (masked, one real
+      file): see *T-08 reconnaissance* below.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
@@ -1316,6 +1317,28 @@ need rows in `counterparties.tsv`. The refusal lists each one with date, amount,
 name and the row to append, so the classification pass is mechanical. Re-running `extract` after
 each batch of rows produces a fresh digest and therefore a fresh approval; that is the gate working,
 not an obstacle.
+
+### T-08 reconnaissance (2026-09-26) — the Brubank account, mapped without reading it
+
+Same method as T-06b: shape-only dumps, every quantity compared in-process, scratch scripts outside
+the repository and deleted. The filename (which names the holder) never reached a transcript.
+
+- **File:** sha256-12 `138f157b9718`, 4 pages, **28 movements** (22 on page 1, 6 on page 2).
+- **Extractor:** the existing `read_pdf()` (`pypdfium2`) reads clean per-line text; normalize `\r\n`
+  first, as `provincia.py` does. No new primitive.
+- **Columns (page 1, pt):** Fecha ~31, #Ref ~73, Descripción ~136, Débito ~393–431, Crédito ~452–499,
+  Saldo ~520–563. The table header repeats on pages 1–2. The balance header block (Saldo Inicial,
+  Saldo Final, Créditos, Débitos, Imp. Trans. Financieras) opens page 1 and **repeats as a recap at
+  the end of page 3**. Footer with the period repeats on pages 1–3; page 4 is legal prose.
+- **Rows:** date **`dd-mm-aa`** (two-digit year, unlike every other source); `#Ref` 10 digits, all
+  distinct; exactly one of Débito/Crédito per row, the other `-`; Argentine amounts; **no minus sign
+  anywhere**; no wrapped descriptions in this file; ascending chronological order.
+- **Reconciliation, all True:** opening + credits − debits = closing; sum of credits and of debits
+  match the header totals; the running-balance chain holds on every row; dates inside the period.
+- **Special rows:** `Intereses pagados` 1 (a credit row); `De una cuenta tuya - BBVA` 3 (credits);
+  `Imp. Trans. Financieras` appears **only as a header total**, never as a row. 0 anomalous rows.
+- **Identify marker:** `resumen` + `movimientos` on the title line, disjoint from Provincia's.
+- **Sibling to model on:** `provincia.py` / `provincia_importer.py` (cash account, running balance).
 
 ### T-06a delivered (2026-09-26) — the account extracto, and the two decisions it forced
 
