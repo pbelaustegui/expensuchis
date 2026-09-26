@@ -586,7 +586,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       decision to document (not silently default). — depends on T-04.
       **Delivered 2026-09-26** — commits `3daa513` (importer), `536a1a7` (probe),
       `e96e6d5` (the counterparty-identity contract). See *T-06a delivered* below.
-- [ ] T-06b: **Banco Provincia `Liquidación Visa`** (monthly, Argentine comma-decimal,
+- [x] T-06b: **Banco Provincia `Liquidación Visa`** (monthly, Argentine comma-decimal,
       **trailing minus**, `C.NN/NN` installments, USD rows, merchant `*` prefixes, **no**
       running balance, sign inverted: a purchase grows the card liability). Split out of
       T-06 with T-06a. — depends on T-04. **Reconnaissance closed 2026-09-26** (masked,
@@ -1487,17 +1487,56 @@ row takes the closing month's first day, because `Liquidacion` does not expose t
    printed **without** a thousands separator (`2187,43`), and a stricter "money inside the parentheses"
    check rejected it. Fixtures that mimic a real shape must be built from the masked real shape.
 
+### T-06b delivered, part 2 (2026-09-26) — the wiring and the probe
+
+Commits `a3cfad2` (the wiring: `provincia_visa_importer.py`, the registry entry, its suite and the
+registration expectation the new identity moves) and `0086184` (the acceptance probe and its suite).
+T-06b is complete: every unit reviewed over its own frozen candidate, every approval acknowledged,
+authority burned, tree clean at **553 passed / 2 skipped**.
+
+**The wiring review (tier high, four lenses, one refuter pass) found two more CRITICAL findings, both
+real, and neither visible to the two independent verification passes:**
+
+- the CUIT redaction was broken for a **mixed-separator CUIT with a space before its final digit**
+  (`20.12345678 9`): the identity was split on whitespace *before* CUIT tokens were classified, so
+  `20.12345678` survived and the trailing `9` was dropped as a stray digit, printing **ten of the
+  eleven digits** in the identity and in the refusal's `append` line. The old guard compared a
+  *redacted* form and therefore could not see it. The fix sweeps CUIT runs from the **raw description**
+  first and replaced the guard with a property of the string that is actually printed: no run of seven
+  or more digits once separators are ignored, else the document is refused. **The lesson generalises:
+  a redaction guard must be a property of the printed string, never a comparison against a
+  transformation of it.**
+- the surcharge key **omitted the person**, so two people's identical charges (same closing month,
+  kind, amount, currency) produced one key and the pipeline's ledger-wide dedup **silently dropped the
+  second** — understating that person's expenses and liability. The key now carries the person,
+  mirroring the plan key. **The lesson generalises: a natural key must carry every dimension that
+  distinguishes two legitimately different facts.**
+
+**Ten advisory findings stand on the wiring and two on the probe**, all non-blocking and none of them
+reopening the review: `R1-1`, `R1-2`, `R2-001`–`R2-003`, `R3-DEFAULT-READER-UNPROVED`,
+`R3-INTERNAL-DESTINATION-UNPROVED`, `R3-LAZY-MAP-UNPROVED`, `R4-1`, `R4-2` (wiring, all in
+`provincia_visa_importer.py`), and `R3-multipath-coverage`, `R3-parse-error-message` (probe, in
+`tools/probe_provincia_visa.py`). Three of them are explicitly *unproved* paths the reviewers could not
+settle — a default reader, an internal destination and the lazy map — each worth a test when the wiring
+is next touched.
+
+**One more process lesson, from the transport failure.** The four-lens group capture failed at the
+relay (`reviewer completion failed for review-reliability: terminated`, zero slots admitted) and the
+provider's instruction was exact: refresh STATUS and submit **only the reoffered one-slot binding**,
+never replay the group. Capturing slot by slot afterwards admitted all four.
+
 ## Next step
 
-1. **T-06b is the active task, halfway delivered.** The tracker unit and the parser unit are committed
-   and reviewed (`9f9f49b`, `7db14a1`); the probe is green against the real document. What remains is
-   the **wiring unit** (`provincia_visa_importer.py`, the registry entry, the importer suite and the
-   registration expectation the new identity moves) and the **probe unit** (`tools/probe_provincia_visa.py`
-   and its suite): both are written and independently verified, neither is committed, and each needs its
-   own review unit — see *T-06b delivered, part 1* for how a unit is isolated and for the standing
-   practice of running the pre-commit gate before freezing.
-2. **T-05b is closed and the first real Mercado Pago import ran** (3 people, 81 movements,
-   `bean-check` clean); **T-06a is closed** (Provincia account extracto, reviewed and committed).
+1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
+   unit and both delivery sections are the record. What remains of the feature is the next task in the
+   checklist — **T-03** (the MEP and CCL series) — plus the deferred T-01c/T-01d units and the
+   follow-ups below.
+2. **Follow-ups the review left open, in the order they matter:** the three *unproved* wiring paths
+   above; the T-06a advisory (the extracto's redactor does not match the hyphenated CUIT form); the
+   probe's multipath coverage and its parse-error message; and the residuals the parser records in its
+   own docstring (the trailing-amount scanner's grouped integer part, the period window's one-year
+   blind spot for a long plan, the plan key's dependence on merchant text, and the day-1 stand-in for
+   an undated surcharge row).
 3. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
    first real month is ingested.
 4. **T-01c** (`ruff format` drift across nine files) and **T-01d** (redact the leak guard's failure
