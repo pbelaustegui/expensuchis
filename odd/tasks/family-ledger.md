@@ -591,6 +591,27 @@ market rate. Confirm the exact presentation against a real statement before enco
       - Left out by the writer: no pipeline `--reveal`; `STATEMENT_MISSING` still prints the path
         the caller typed; `mercadopago_importer._unclassified_message` prints raw counterparty names
         by documented design.
+      **The three WARNINGs fixed 2026-09-26** in `ba638f1`: the hash is an HMAC under a 32-byte key
+      at `$EXPENSUCHIS_LEDGER_DIR/redaction.key` (created on first use, 0600, a corrupt key raises,
+      no unkeyed fallback); the refusal carries only the exception class except each importer's
+      `CounterpartyClassificationError` and `StatementReadError`, whose messages are built to be
+      shown; an unreadable statement or key yields `unreadable`. R2-001 (`reveal` default) fixed
+      along the way. RED: import/attribute errors on the new API; GREEN: 648 passed / 2 skipped,
+      ruff clean. Assessed **high**; owner granted; four-lens review `review-eb4967afc32ba7c2`
+      **approved** with no correction, acknowledged and burned. Open follow-ups from it:
+      - **Key creation races** (R4-001/R3-001/R1-001, WARNING): a fixed `.tmp` name opened without
+        `O_EXCL`, and `os.replace` over an existing key, so two first uses at once can each mint a
+        key and one overwrites the other, making earlier hashes unmatchable. Create with
+        `os.link`/`O_EXCL` and re-read after writing.
+      - **The `unreadable` marker also covers a bad key** (R2-002, WARNING), blaming the statement
+        for a key failure; and `import-workflow.md` names only `CounterpartyClassificationError` as
+        preserved, not `StatementReadError` (R2-001, WARNING).
+      - Suggestions: the `key=None` reason is hardcoded as "no ledger directory" (R2-003); the guard
+        builds the key path by hand instead of via `LedgerPaths` (R2-004); comments cite review IDs
+        (R2-005); no tests for the bad-key fallback (R3-002) or a preserved `StatementReadError`
+        (R3-003); a read-only ledger dir makes a real leak exit 3 instead of 1 (R3-004).
+      - Still by design: the unclassified-counterparties refusal shows raw names, and reaches an
+        agent's model if an agent runs an import.
 - [x] T-04c: **The counterparty map design**, in `docs/import-workflow.md`: per-source variants,
       `internal:<account>` or `expense:<category>` destinations, asked once during review and
       remembered, never defaulted. Categories to add: `Expenses:ServiciosPersonales` and
