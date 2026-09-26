@@ -549,7 +549,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       Deliberately not done as part of T-04b: it is a large cosmetic diff across guarded files and
       belongs in its own reviewable unit. Discovered by T-04b's brief, which asked for a check the
       project never had.
-- [ ] T-01d: **Redact the leak guard's failure output.** A finding prints the offending token *and*
+- [x] T-01d: **Redact the leak guard's failure output.** A finding prints the offending token *and*
       the statement path it came from — correct for a human at a terminal and a leak when an agent
       runs the guard, because the agent's model is a remote API. Running it once during T-05a put
       statement tokens and statement paths into the parent's context. The guard needs a redaction
@@ -561,6 +561,36 @@ market rate. Confirm the exact presentation against a real statement before enco
       `refused:`. T-05b removed the reader's own path from that message (the importer wraps a reader
       failure with the exception class only), but the basename comes from the pipeline (T-04b) and
       stays until this task redacts it.
+      **Decided 2026-09-26 (owner): redacted by default, `--reveal` to opt in.** A finding prints
+      the token's shape, a content hash and the repository file it was found in; never the token,
+      never the statement path. The raw token and statement path print only under an explicit
+      `--reveal`, meant for the owner at a terminal. The pipeline's refusals replace the statement
+      basename with a short content hash. Rejected: full-by-default with an opt-in `--redact`,
+      because safety would depend on the caller remembering a flag, which already failed in T-05a.
+      Route: delegated direct (writer trigger: guard, pipeline, CLI, tests, docs). TDD strict,
+      runner `uv run pytest`.
+      **Closed 2026-09-26** — commit `db788f0` (`redact.py` shared `content_hash`, guard
+      `format_finding`/`format_result` and `--reveal`, `importer-raised` names the statement by
+      hash). RED: collection errors on the missing `expensuchis.redact`/`format_finding`; GREEN: 632
+      passed / 2 skipped, ruff clean. Hooks pass no `--reveal`; CI never runs the guard. The slice
+      from `7342258` (T-03 fixes `493043d`, `849dc62` plus this commit, 555 lines) was assessed
+      **high** (`process_boundary` in `leakguard.py`); owner granted; four-lens native review
+      `review-f5a56760c4aedbdd` **approved** with no correction, acknowledged and burned.
+      Non-blocking follow-ups, open, in the order they matter:
+      - **The hash is reversible** (R1-001/R3-003): an unsalted 12-hex sha256 plus the exact length
+        and class lets a reader brute-force numeric tokens (a CUIT in minutes) and dictionary-attack
+        names; `redact.py`'s docstring over-promises. Needs a keyed hash (local secret in the ledger
+        dir) or dropping the hash and length from the default output.
+      - **The refusal still quotes the importer's exception text** (R1-002/R3-002): an `OSError` or
+        parser error carrying the statement path puts the basename back into `refused:`.
+      - **`read_bytes()` inside the except handler** (R4-001/R3-001/R2-004): an unreadable statement
+        turns the typed refusal into an unhandled `OSError`; hash before the `try` or guard it.
+      - Readability/test gaps: `format_finding` has no `reveal` default despite its docstring
+        (R2-001); two `test_fx.py` comments overstate coverage (R2-002, R2-003); the two R3-004 tests
+        could be parametrized (R2-005); no test for the line-0 `(line unknown)` rendering (R3-004).
+      - Left out by the writer: no pipeline `--reveal`; `STATEMENT_MISSING` still prints the path
+        the caller typed; `mercadopago_importer._unclassified_message` prints raw counterparty names
+        by documented design.
 - [x] T-04c: **The counterparty map design**, in `docs/import-workflow.md`: per-source variants,
       `internal:<account>` or `expense:<category>` destinations, asked once during review and
       remembered, never defaulted. Categories to add: `Expenses:ServiciosPersonales` and
