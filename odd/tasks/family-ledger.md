@@ -1406,14 +1406,98 @@ The work therefore lands as four work units, and each one is reviewed over its o
 Reconnaissance, decisions and the plan stay the authority for every unit, which is why the docs unit
 is the first commit rather than the last.
 
+### T-06b delivered, part 1 (2026-09-26) — the contract and the parser
+
+Commits `9f9f49b` (this tracker: reconnaissance, the four owner decisions and the review split)
+and `7db14a1` (the parser, its synthetic fixtures and its suite). The acceptance probe ran against
+the **real** document with all eleven checks `ok`: 12 charges, one payment, a balance row present,
+two stamp-tax rows and three perception rows.
+
+**The candidate had to be split, and the provider said so.** The first `review.start` over the
+finished T-06b candidate came back as a provider-owned preflight failure — `lens_context_budget_exceeded`:
+the reviewer evidence does not fit the native context budget, no authority was created, and retrying
+the same candidate cannot succeed because the evidence is never truncated. T-06b therefore lands as
+**four work units**, each reviewed over its own frozen candidate:
+
+1. `docs` — this tracker. 2. `feat(import)` — the parser (this part). 3. `feat(import)` — the wiring:
+`provincia_visa_importer.py`, the registry entry, the importer suite and the registration expectation
+the new identity moves. 4. `test(probe)` — the probe and its suite.
+
+Units 3 and 4 are written, verified twice, and the probe is green against the real document — but
+they are **not committed**, because each needs its own review unit and a burned authority covers only
+the candidate that earned it.
+
+**The review earned its cost: three CRITICAL findings, all real, all in the post-total surcharge
+scanner, and none of them found by either independent verification pass (or by me).**
+
+- `R3-SURCHARGE-SILENT-SKIP` — an unrecognized post-total row **with** an amount but **without** a
+  day broke the loop silently: the row and every later one were dropped while `surcharge-complete`
+  still reported `ok`. The failing condition had required a day token.
+- `R3-1` — a perception-shaped row (rate + parenthesized base) **without** an amount never set the
+  "claimed" flag, so it closed the block silently, although the docstring already promised a refusal.
+- `R3-001` — an opening parenthesis with no closing one made the base scan evaluate `None + 1` and
+  raise an uncaught `TypeError` instead of a controlled refusal. The writer had reported that edge as
+  "kept deliberately loud"; it crashed.
+
+The contract that emerged, and that the module now states: **a post-total row that matches any charge
+marker (the stamp-tax label, a rate, a parenthesis pair, an amount tail) is claimed and refused when
+it cannot be parsed; only a row that matches no marker at all ends the block.** After the third
+finding the fix came with a **property test** driving a 15-shape corpus of malformed post-total rows
+and asserting that every outcome is either a successful parse or one of the two controlled exceptions —
+closing the class instead of one instance per review round.
+
+**Two advisories stand, non-blocking and deliberately not chased:** `R3-001` (WARNING, lines 865-900)
+and `R3-002` (SUGGESTION, lines 668-679). The provider records them with an id, a location and a
+severity; their text is not exposed to an agent session, so they are tracked by those references.
+
+**Residuals recorded, each with the evidence that would settle it:** the trailing-amount scanner still
+requires a grouped integer part, so an *amount* printed ungrouped with four or more digits would refuse
+loudly (the masked shapes show real amounts at or below three digits); the period window still admits a
+one-year misread of a long plan; the plan key still depends on the merchant text, and only a second
+real statement can show whether the bank's rendering drifts between months; and an undated surcharge
+row takes the closing month's first day, because `Liquidacion` does not expose the closing day.
+
+#### What the review process itself cost, and what is now standing practice
+
+1. **The leak guard runs at commit time, i.e. *after* a candidate is frozen for review.** A leak-guard
+   finding therefore forces a content change that voids the approval and costs a whole review round —
+   which is exactly what happened here. **Standing practice now: run `.githooks/pre-commit` with
+   `EXPENSUCHIS_LEDGER_DIR` set *before* freezing a candidate**, so the gate is green when the review
+   runs.
+2. **How a work-unit candidate is isolated for review.** Stage only that unit's files, `git stash` the
+   tracked changes belonging to other units, and resolve the untracked inventory with `untrackedScope:
+   "exclude"`. New files must be staged or they never enter the projection; a `baseRef` range was
+   rejected (`candidate-target-projection-drift`) and the range's `select-intended-untracked` binding
+   was refused, so the workspace projection is the route that works.
+3. **The targeted-validation transition is not reachable from an agent session.** After a correction the
+   provider offers `review.capture-validation`; neither capture tool accepts that binding (`different
+   session route`) and `advance` does not know the transition. The native route is the CLI, and composing
+   its tokens from a model is forbidden. The substitute used — a fresh review of the corrected candidate
+   — covers strictly more than the targeted validation did.
+4. **`review abandon` needs `capturedLensResults`, which no status exposes.** Superseded lineages in
+   `correction_required` therefore cannot be closed by the agent; their candidate views were removed by
+   hand with the user's authorization (each view is a read-only tree under `.git/gentle-ai/candidate-views/`,
+   which the privacy guard scans by design — so an open review leaves two privacy tests red and blocks
+   the pre-commit until the views are gone). A closed-and-acknowledged lineage removes its own view.
+5. **Consent is human and time-boxed.** A `review.start` opens a consent envelope; unanswered after ten
+   minutes it returns `consent-binding-stale` with no lineage and no mutation, and the START must be run
+   again. One host approval covers later envelopes for the same session and repository.
+6. **The acceptance probe is the only oracle for real shapes.** The parser passed 54/54 unit tests while
+   the real statement was refused, because my synthetic shapes were wrong: the real perception *base* is
+   printed **without** a thousands separator (`2187,43`), and a stricter "money inside the parentheses"
+   check rejected it. Fixtures that mimic a real shape must be built from the masked real shape.
+
 ## Next step
 
-1. **T-06b is the active task**
+1. **T-06b is the active task, halfway delivered.** The tracker unit and the parser unit are committed
+   and reviewed (`9f9f49b`, `7db14a1`); the probe is green against the real document. What remains is
+   the **wiring unit** (`provincia_visa_importer.py`, the registry entry, the importer suite and the
+   registration expectation the new identity moves) and the **probe unit** (`tools/probe_provincia_visa.py`
+   and its suite): both are written and independently verified, neither is committed, and each needs its
+   own review unit — see *T-06b delivered, part 1* for how a unit is isolated and for the standing
+   practice of running the pre-commit gate before freezing.
 2. **T-05b is closed and the first real Mercado Pago import ran** (3 people, 81 movements,
    `bean-check` clean); **T-06a is closed** (Provincia account extracto, reviewed and committed).
-   T-06b's implementation is what remains: the parser, the wiring, the registry entry, synthetic
-   fixtures, tests and the probe extension — with the geometry and the four owner decisions above
-   as the contract.
 3. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
    first real month is ingested.
 4. **T-01c** (`ruff format` drift across nine files) and **T-01d** (redact the leak guard's failure
