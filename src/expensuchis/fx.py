@@ -51,6 +51,7 @@ from __future__ import annotations
 import bisect
 import dataclasses
 import datetime as dt
+import http.client
 import json
 import os
 import tempfile
@@ -255,7 +256,7 @@ class ArgentinaDatosSource:
         url = self.url_for(series)
         try:
             raw = self._transport(url)
-        except (OSError, urllib.error.URLError) as exc:
+        except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
             raise FetchError(f"Could not fetch {series.name} from {url}: {exc}") from exc
         return _parse_payload(raw, series, url)
 

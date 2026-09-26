@@ -7,6 +7,7 @@ is built with an injected transport, either a canned fixture or an inline malfor
 from __future__ import annotations
 
 import datetime as dt
+import http.client
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -105,6 +106,32 @@ def test_source_wraps_a_transport_failure() -> None:
     source = ArgentinaDatosSource(transport=failing)
     with pytest.raises(FetchError):
         source.fetch(Series.MEP)
+
+
+def test_source_wraps_an_incomplete_read_as_a_fetch_error() -> None:
+    """R3-004: http.client.HTTPException subclasses must not escape fetch() unwrapped."""
+    original = http.client.IncompleteRead(b"")
+
+    def failing(url: str) -> bytes:
+        raise original
+
+    source = ArgentinaDatosSource(transport=failing)
+    with pytest.raises(FetchError) as exc_info:
+        source.fetch(Series.MEP)
+    assert exc_info.value.__cause__ is original
+
+
+def test_source_wraps_a_bad_status_line_as_a_fetch_error() -> None:
+    """R3-004: http.client.HTTPException subclasses must not escape fetch() unwrapped."""
+    original = http.client.BadStatusLine("x")
+
+    def failing(url: str) -> bytes:
+        raise original
+
+    source = ArgentinaDatosSource(transport=failing)
+    with pytest.raises(FetchError) as exc_info:
+        source.fetch(Series.MEP)
+    assert exc_info.value.__cause__ is original
 
 
 REJECTIONS: dict[str, str] = {
@@ -265,6 +292,98 @@ def test_load_rejects_a_non_finite_or_non_string_cached_rate(
         '"source_url": "https://example.invalid", "fetched_at": "2024-01-09T00:00:00+00:00", '
         f'"quotes": [{{"fecha": "2024-01-02", "compra": {compra_json}, "venta": {venta_json}}}]}}'
     )
+    paths.fx_series("bolsa").write_text(payload, encoding="utf-8")
+
+    with pytest.raises(CacheError):
+        FxCache(paths).load(Series.MEP)
+
+
+_MISSING = object()  # sentinel: delete the field instead of overriding its value
+
+
+def _cache_json(
+    top: dict[str, object] | None = None, quote: dict[str, object] | None = None
+) -> str:
+    """Build cache-file JSON text from a valid base payload, overriding or deleting fields.
+
+    ``top`` overrides or deletes top-level fields; ``quote`` overrides or deletes fields
+    of the single quote at ``quotes[0]``. A value of :data:`_MISSING` deletes that key.
+    """
+    payload: dict[str, object] = {
+        "version": 1,
+        "series": "MEP",
+        "casa": "bolsa",
+        "source_id": "argentinadatos",
+        "source_url": "https://example.invalid",
+        "fetched_at": "2024-01-09T00:00:00+00:00",
+        "quotes": [{"fecha": "2024-01-02", "compra": "800.0", "venta": "820.5"}],
+    }
+    for key, value in (top or {}).items():
+        if value is _MISSING:
+            del payload[key]
+        else:
+            payload[key] = value
+    if quote is not None:
+        base_quote = dict(payload["quotes"][0])  # type: ignore[index]
+        for key, value in quote.items():
+            if value is _MISSING:
+                del base_quote[key]
+            else:
+                base_quote[key] = value
+        payload["quotes"] = [base_quote]
+    return json.dumps(payload)
+
+
+CACHE_STRUCTURE_REJECTIONS: dict[str, str] = {
+    # Every CacheError branch _read_cache/_quote_from_json implement, derived from the code,
+    # each written as a hand-built cache file (R3-003).
+    "top_level_not_an_object": "42",
+    "missing_series": _cache_json(top={"series": _MISSING}),
+    "missing_source_id": _cache_json(top={"source_id": _MISSING}),
+    "missing_source_url": _cache_json(top={"source_url": _MISSING}),
+    "missing_fetched_at": _cache_json(top={"fetched_at": _MISSING}),
+    "missing_quotes": _cache_json(top={"quotes": _MISSING}),
+    "non_string_series_name": _cache_json(top={"series": 1}),
+    "unknown_series_name": _cache_json(top={"series": "XYZ"}),
+    "series_mismatch": _cache_json(top={"series": "CCL"}),
+    "non_string_source_id": _cache_json(top={"source_id": 1}),
+    "non_string_source_url": _cache_json(top={"source_url": 1}),
+    "non_string_fetched_at": _cache_json(top={"fetched_at": 1}),
+    "unparseable_fetched_at": _cache_json(top={"fetched_at": "not-a-date"}),
+    "quotes_not_a_list": _cache_json(top={"quotes": {"not": "a list"}}),
+    "quote_not_an_object": _cache_json(top={"quotes": [1]}),
+    "quote_missing_fecha": _cache_json(quote={"fecha": _MISSING}),
+    "quote_missing_compra": _cache_json(quote={"compra": _MISSING}),
+    "quote_missing_venta": _cache_json(quote={"venta": _MISSING}),
+    "quote_non_string_fecha": _cache_json(quote={"fecha": 20240102}),
+    "quote_unparseable_fecha": _cache_json(quote={"fecha": "02-01-2024"}),
+    "quote_buy_greater_than_sell": _cache_json(quote={"compra": "900.0"}),
+    "dates_out_of_order": _cache_json(
+        top={
+            "quotes": [
+                {"fecha": "2024-01-05", "compra": "800.0", "venta": "820.5"},
+                {"fecha": "2024-01-02", "compra": "800.0", "venta": "820.5"},
+            ]
+        }
+    ),
+    "duplicate_dates": _cache_json(
+        top={
+            "quotes": [
+                {"fecha": "2024-01-02", "compra": "800.0", "venta": "820.5"},
+                {"fecha": "2024-01-02", "compra": "800.0", "venta": "820.5"},
+            ]
+        }
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "payload", CACHE_STRUCTURE_REJECTIONS.values(), ids=CACHE_STRUCTURE_REJECTIONS.keys()
+)
+def test_load_rejects_structurally_invalid_cache_files(ledger: Path, payload: str) -> None:
+    """R3-003: characterizes every CacheError branch _read_cache/_quote_from_json implement."""
+    paths = LedgerPaths()
+    paths.fx_dir().mkdir(parents=True, exist_ok=True)
     paths.fx_series("bolsa").write_text(payload, encoding="utf-8")
 
     with pytest.raises(CacheError):
