@@ -296,7 +296,7 @@ names each unclassified row with enough context to decide — date, amount,
 description, and the raw name — plus the `counterparties.tsv` row to append:
 
 ```
-refused: importer-raised: Importer MercadoPago refused <statement file>: 2 counterparties are not classified.
+refused: importer-raised: Importer MercadoPago refused statement <hash>: 2 counterparties are not classified.
   2026-04-02  -25,000.00 ARS  "Cleaning service, paid in cash"  "Servicio Domestico Ejemplo"
     append to counterparties.tsv:
       MercadoPago<TAB>Servicio Domestico Ejemplo<TAB>expense:<category>
@@ -305,8 +305,11 @@ refused: importer-raised: Importer MercadoPago refused <statement file>: 2 count
       MercadoPago<TAB>Familiar Ejemplo<TAB>expense:<category>
 ```
 
-The `<statement file>` basename in that prefix comes from the pipeline, not the importer,
-and is a known leak path tracked in `odd/tasks/family-ledger.md` as **T-01d**.
+`<hash>` is a short content hash of the statement's bytes (`expensuchis.redact.content_hash`,
+the same helper and length the leak guard's redacted output uses), not the statement's
+basename: the basename can name the account holder, which is a leak path the pipeline used
+to fall into (fixed by **T-01d**, tracked in `odd/tasks/family-ledger.md`). There is no
+`--reveal` for this message; it is redacted unconditionally.
 
 The suggested destination is literally `expense:<category>`: the importer **never chooses a
 category**, only the user can, so the placeholder is what the message prints. Replace

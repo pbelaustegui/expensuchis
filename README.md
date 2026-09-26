@@ -100,6 +100,13 @@ The privacy guard exits 1 for data-bearing files and 3 for a crash; the leak gua
 exits 1 for a leaked token, 2 for a configured-but-unusable ledger, and 3 for a crash,
 so a crash is never reported as a leak.
 
+The leak guard's own findings are **redacted by default**: a finding names a token's
+shape, a short content hash and the repository file and line, never the raw token or
+the statement it came from, because the guard's output can end up read by an agent
+whose model is remote. Pass `--reveal` to see the raw token and the statement path
+instead, for the owner at a terminal only; neither hook ever passes it, so both stay
+redacted. See `expensuchis.leakguard`'s module docstring for the exact contract.
+
 **`git commit --no-verify` skips both hooks and is not policed for the leak guard.**
 For privacy guard #2 it only defers detection: `pytest` re-runs the same scan in CI,
 so a bypassed data file still fails on push/PR. **The leak guard is different and is

@@ -25,6 +25,7 @@ from beangulp import Importer
 from expensuchis import pipeline
 from expensuchis.ledger import ENV_VAR
 from expensuchis.paths import LedgerPaths
+from expensuchis.redact import content_hash
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -331,6 +332,25 @@ def test_extract_wraps_an_importer_failure_in_a_refusal(ledger: LedgerPaths) -> 
         pipeline.extract(ledger, "Test", statement, importers=[importer])
     assert excinfo.value.reason == pipeline.IMPORTER_RAISED
     assert "reconciliation failed" in str(excinfo.value)
+
+
+def test_extract_refusal_redacts_the_statement_basename_with_a_content_hash(
+    ledger: LedgerPaths,
+) -> None:
+    """T-01d: ``importer-raised`` names the statement by content hash, never by basename."""
+    write_ledger(ledger)
+    statement = ledger.root / "statement.csv"
+    statement.write_text("x\n", encoding="utf-8")
+    importer = FakeImporter("boom", error=ValueError("reconciliation failed"))
+
+    with pytest.raises(pipeline.PipelineError) as excinfo:
+        pipeline.extract(ledger, "Test", statement, importers=[importer])
+
+    message = str(excinfo.value)
+    assert excinfo.value.reason == pipeline.IMPORTER_RAISED
+    assert "statement.csv" not in message
+    assert content_hash(statement.read_bytes()) in message
+    assert "reconciliation failed" in message
 
 
 # --------------------------------------------------------------------------- approve

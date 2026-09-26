@@ -55,9 +55,13 @@ known to evade it and are recorded here rather than left implied:
 * an amount written with a **space as the thousands separator** (``13 000,00``):
   the numeric check does not join numbers across whitespace, so it sees only short
   fragments;
-* the **finding output prints the source statement path**, and where that path
-  contains the account holder's name — one real statement filename does — the
-  output is not safe to paste into a public log;
+* **fixed by T-01d, recorded because it was a real incident**: the finding output
+  used to print the raw token and the source statement path unconditionally, and
+  where that path contains the account holder's name — one real statement
+  filename does — the output was not safe to paste into a public log. The default
+  is now redacted (:func:`format_finding`, ``reveal=False``): a token's shape, a
+  short content hash and the repository file and line, never the token or the
+  path. ``--reveal`` restores the old output, for the owner at a terminal only;
 * a statement that parses to **empty text** (a scanned statement with no text
   layer, for example): it contributes no tokens and is silently ignored. The guard
   fails closed only when *every* statement is empty, not when one of them is;
@@ -128,8 +132,10 @@ Fail-closed contract
   silently. A **typo must not silently disable a safety control**, which is why a
   set-but-missing path is unreadable while an unset variable is not.
 * **Intersection with a non-baseline token** — :attr:`GuardStatus.LEAK`, exit 1.
-  The offending token is printed so the user can fix it, together with the
-  repository file it appeared in and the statement file it came from.
+  Each finding is printed redacted by default: the token's shape, a short content
+  hash of the token, and the repository file and line it appeared in — never the
+  raw token, never the statement file it came from. ``--reveal`` restores the raw
+  token and the statement path, for the owner at a terminal only (T-01d).
 * **The guard itself crashes** — exit 3, deliberately distinct from ``LEAK`` (1)
   so that a crash is never reported as a leaked token.
 
@@ -173,6 +179,15 @@ tracked tree::
     python -m expensuchis.leakguard --tree
     python -m expensuchis.leakguard --message-file .git/COMMIT_EDITMSG
 
+Every one of these is redacted by default (T-01d): a finding shows the token's
+shape, a short content hash and its repository location, never the raw token or
+the statement path. Add ``--reveal`` at a terminal, as the owner, to see the raw
+token and the statement file(s) it matched::
+
+    python -m expensuchis.leakguard --tree --reveal
+
+Neither hook invocation ever passes ``--reveal``, so the hooks stay redacted.
+
 :func:`staged_texts` lists only added/copied/modified/renamed paths
 (``--diff-filter=ACMR``), so a token that was committed while the guard could not
 run is **not** re-examined by a later commit. Run ``--tree`` periodically to
@@ -195,6 +210,7 @@ from pathlib import Path
 
 from .ledger import ENV_VAR, LedgerDirError, ledger_dir
 from .privacy import repository_root
+from .redact import content_hash
 
 __all__ = [
     "BASELINE_FILENAME",
@@ -209,6 +225,8 @@ __all__ = [
     "derived_legitimate_numbers",
     "evaluate",
     "extract_tokens",
+    "format_finding",
+    "format_result",
     "load_baseline",
     "main",
     "pdfium_text",
@@ -265,10 +283,18 @@ EXIT_CODES = _EXIT_CODES
 
 @dataclass(frozen=True)
 class Finding:
-    """One non-baseline statement token found in one repository file."""
+    """One non-baseline statement token found in one repository file.
+
+    ``line`` is the 1-based line number of the token's first occurrence in
+    ``file``, or ``0`` when the token was not found on any single physical line
+    (for example, it is split by a line wrap the extractor does not rejoin).
+    ``token`` and ``statements`` are carried for :func:`format_finding`'s
+    ``reveal=True`` path; the default rendering never prints them (T-01d).
+    """
 
     token: str
     file: str
+    line: int
     statements: tuple[str, ...]
 
 
@@ -498,23 +524,41 @@ def _is_checked(token: str) -> bool:
     """
     return not (token.isdigit() and len(token) < MIN_NUMERIC_TOKEN_LENGTH)
 
+
+def _first_line_numbers(text: str) -> dict[str, int]:
+    """Return, for every token :func:`extract_tokens` finds in ``text``, its first line.
+
+    Lines are 1-based. A token that only matches when characters are joined
+    across a line break (a wrapped word or number) is absent from the result;
+    :func:`scan` reports ``0`` for it.
+    """
+    first: dict[str, int] = {}
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        for token in extract_tokens(line):
+            first.setdefault(token, line_number)
+    return first
+
+
 def scan(texts: Mapping[str, str], index: TokenIndex, baseline: set[str]) -> list[Finding]:
     """Return every non-baseline statement token found in ``texts``.
 
     ``texts`` maps a repository-relative file name to its content. A token found
     in several files yields one finding per file; a token found twice in one file
-    yields one finding. Numeric tokens shorter than
-    :data:`MIN_NUMERIC_TOKEN_LENGTH` are ignored; ``baseline`` is expected to
-    already include the derived legitimate numbers.
+    yields one finding, at the line of its first occurrence. Numeric tokens
+    shorter than :data:`MIN_NUMERIC_TOKEN_LENGTH` are ignored; ``baseline`` is
+    expected to already include the derived legitimate numbers.
     """
     findings: list[Finding] = []
     for file, text in texts.items():
+        first_lines = _first_line_numbers(text)
         for token in extract_tokens(text):
             if not _is_checked(token):
                 continue
             if token in baseline or token not in index.token_to_files:
                 continue
-            findings.append(Finding(token, file, tuple(index.token_to_files[token])))
+            findings.append(
+                Finding(token, file, first_lines.get(token, 0), tuple(index.token_to_files[token]))
+            )
     return sorted(findings, key=lambda finding: (finding.file, finding.token))
 
 
@@ -649,14 +693,47 @@ def tracked_texts(root: Path) -> dict[str, str]:
     return texts
 
 
-def _print_result(result: GuardResult) -> None:
-    print(result.message)
-    for finding in result.findings:
+def _token_shape(token: str) -> str:
+    """Return a coarse, non-identifying description of ``token``'s shape.
+
+    The guard has no notion of what a token *means* (it does not know, for
+    example, that an eleven-digit run is typically a CUIT/CUIL), so the shape it
+    can honestly report is length and character class -- exactly what
+    :func:`extract_tokens` already distinguishes.
+    """
+    if token.isdigit():
+        return f"{len(token)}-digit number"
+    return f"{len(token)}-letter word"
+
+
+def format_finding(finding: Finding, *, reveal: bool) -> str:
+    """Render one finding, redacted by default (T-01d).
+
+    Redacted (``reveal=False``, the default): the token's shape, a short content
+    hash of the token, and the repository file and line -- never the raw token,
+    never the statement path. ``reveal=True`` restores the raw token and the
+    statement file(s) it matched, meant for the owner at a terminal only.
+    """
+    location = (
+        f"{finding.file}:{finding.line}" if finding.line else f"{finding.file} (line unknown)"
+    )
+    if reveal:
         statements = ", ".join(finding.statements)
-        print(
-            f"  token {finding.token!r} in {finding.file} "
-            f"(statement: {statements})"
-        )
+        return f"  token {finding.token!r} in {location} (statement: {statements})"
+    shape = _token_shape(finding.token)
+    digest = content_hash(finding.token.encode("utf-8"))
+    return f"  {shape} {digest} in {location}"
+
+
+def format_result(result: GuardResult, *, reveal: bool = False) -> str:
+    """Render a full guard result as :func:`main` prints it.
+
+    One line per finding, via :func:`format_finding`; redacted unless
+    ``reveal=True``.
+    """
+    lines = [result.message]
+    lines.extend(format_finding(finding, reveal=reveal) for finding in result.findings)
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -666,6 +743,9 @@ def main(argv: list[str] | None = None) -> int:
     every tracked file instead. ``--message-file`` folds a commit message into the
     scanned text, which is how the ``commit-msg`` hook checks a message that the
     pre-commit hook never sees. ``--rebuild-index`` ignores and rewrites the cache.
+    ``--reveal`` prints the raw token and the statement path a finding matched,
+    instead of the default redacted shape/hash/location (T-01d); neither hook
+    invocation passes it, so both stay redacted.
     """
     parser = argparse.ArgumentParser(
         prog="python -m expensuchis.leakguard",
@@ -686,6 +766,15 @@ def main(argv: list[str] | None = None) -> int:
         "--rebuild-index",
         action="store_true",
         help="ignore and rewrite the statement token index cache",
+    )
+    parser.add_argument(
+        "--reveal",
+        action="store_true",
+        help=(
+            "show the raw token and the statement file(s) it matched, instead of the "
+            "default redacted shape, hash and location; for the owner at a terminal "
+            "only -- never pass this where the output is read by an agent or a remote model"
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -709,7 +798,7 @@ def main(argv: list[str] | None = None) -> int:
         texts = {**texts, f"commit message ({message_path})": message}
 
     result = evaluate(texts, force_rebuild=args.rebuild_index, repo_root=root)
-    _print_result(result)
+    print(format_result(result, reveal=args.reveal))
     return EXIT_CODES[result.status.value]
 
 

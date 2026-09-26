@@ -30,12 +30,16 @@ from expensuchis.leakguard import (
     derived_legitimate_numbers,
     evaluate,
     extract_tokens,
+    format_finding,
+    format_result,
     load_baseline,
+    main,
     pdfium_text,
     scan,
     statement_files,
 )
 from expensuchis.ledger import ENV_VAR
+from expensuchis.redact import content_hash
 
 _PYPIUM_AVAILABLE = importlib.util.find_spec("pypdfium2") is not None
 
@@ -179,7 +183,80 @@ def test_finding_names_the_token_the_file_and_the_statement(ledger: Path) -> Non
     (finding,) = result.findings
     assert finding.token == "proveedorinventado"
     assert finding.file == "odd/tasks/x.md"
+    assert finding.line == 1
     assert finding.statements == ("statements/Bbva/fictimbre.pdf",)
+
+
+def test_default_finding_output_is_redacted_but_locatable(ledger: Path) -> None:
+    """T-01d: a finding names a shape, a hash and a location -- never the token or the path."""
+    _statement(ledger, "resumen.pdf", "PROVEEDORINVENTADO")
+    source, _ = _text_source()
+
+    result = evaluate(
+        {"odd/tasks/x.md": "pago a ProveedorInventado"},
+        source=source,
+        ledger_root=ledger,
+    )
+    assert result.status is GuardStatus.LEAK
+
+    output = format_result(result, reveal=False)
+
+    assert "proveedorinventado" not in output.lower()
+    assert "resumen.pdf" not in output
+    assert "statements/resumen.pdf" not in output
+    assert content_hash(b"proveedorinventado") in output
+    assert "18-letter word" in output
+    assert "odd/tasks/x.md:1" in output
+
+
+def test_reveal_shows_the_raw_token_and_the_statement_path(ledger: Path) -> None:
+    """T-01d: ``--reveal`` restores the full output, for the owner at a terminal only."""
+    _statement(ledger, "resumen.pdf", "PROVEEDORINVENTADO")
+    source, _ = _text_source()
+
+    result = evaluate(
+        {"odd/tasks/x.md": "pago a ProveedorInventado"},
+        source=source,
+        ledger_root=ledger,
+    )
+
+    output = format_result(result, reveal=True)
+
+    assert "proveedorinventado" in output
+    assert "statements/resumen.pdf" in output
+    assert "odd/tasks/x.md:1" in output
+
+
+def test_a_clean_result_formats_with_no_finding_lines(ledger: Path) -> None:
+    _statement(ledger, "resumen.pdf", "PROVEEDORINVENTADO")
+    source, _ = _text_source()
+
+    result = evaluate({"notes.md": "unrelated prose"}, source=source, ledger_root=ledger)
+
+    assert format_result(result, reveal=False) == result.message
+
+
+def test_format_finding_redacted_shows_digit_shape_for_a_numeric_token(ledger: Path) -> None:
+    _statement(ledger, "resumen.pdf", "Total a pagorrar 123,456")
+    source, _ = _text_source()
+    index = build_index(ledger, source=source)
+    (finding,) = scan({"notes.md": "the sum was 123456"}, index, set())
+
+    line = format_finding(finding, reveal=False)
+
+    assert "123456" not in line
+    assert content_hash(b"123456") in line
+    assert "6-digit number" in line
+    assert "notes.md:1" in line
+
+
+def test_reveal_flag_is_documented_in_help(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--help"])
+
+    assert excinfo.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--reveal" in help_text
 
 
 def test_scan_reports_one_finding_per_file_but_not_per_occurrence(ledger: Path) -> None:

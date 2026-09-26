@@ -38,6 +38,7 @@ from beangulp.exceptions import Error as BeangulpIdentifyError
 
 from .importers import get_importers
 from .paths import LedgerPaths
+from .redact import content_hash
 
 __all__ = [
     "AMBIGUOUS_IMPORTER",
@@ -237,9 +238,13 @@ def extract(
     try:
         entries = list(importer.extract(str(statement.resolve()), existing) or [])
     except Exception as exc:
+        # The statement is named by a content hash, never by its basename: the
+        # basename can name the account holder (T-01d), and this message is what
+        # the CLI prints after "refused:".
+        statement_id = content_hash(statement.read_bytes())
         raise PipelineError(
             IMPORTER_RAISED,
-            f"Importer {importer.name} refused {statement.name}: {exc}",
+            f"Importer {importer.name} refused statement {statement_id}: {exc}",
         ) from exc
 
     importer.sort(entries)
