@@ -496,9 +496,29 @@ market rate. Confirm the exact presentation against a real statement before enco
       amounts preserved for USD card purchases** (original USD and the ARS actually
       debited, never derived from a market rate). — checks: `bean-check` clean; the
       settlement posting creates no expense leg (proof of no double counting).
-- [ ] T-03: Historical USD series (MEP + CCL) fetcher with a local cache, source
+- [x] T-03: Historical USD series (MEP + CCL) fetcher with a local cache, source
       attribution, gap handling, and offline tests against fixtures. Independent of the
       user's banking sources.
+      **Source decided 2026-09-26 (owner):** ArgentinaDatos, `GET
+      https://api.argentinadatos.com/v1/cotizaciones/dolares/{casa}` — `bolsa` (MEP, from
+      2018-10-29) and `contadoconliqui` (CCL, from 2013-01-02); one call returns the whole
+      series as `[{casa, compra, venta, fecha}]`. Public, no auth, MIT, **unofficial** (fed by
+      DolarApi); the BCRA publishes neither series. Mitigation: every cached quote carries its
+      source, and the series sits behind a source interface so a switch is not a migration.
+      Route: delegated direct (writer trigger: module + cache + tests + fixtures). TDD strict,
+      runner `uv run pytest`.
+      **Closed 2026-09-26** — commit `13ba9f6` (`fx.py`, `LedgerPaths.fx_dir`/`fx_series`, 33
+      offline tests, two public fixtures). RED observed (`ImportError` on `expensuchis.fx`), then
+      `uv run pytest -q` 588 passed / 2 skipped, `ruff check .` clean. Assessed medium
+      (`slice_budget_reached`, 817 lines); owner granted review; native review
+      `review-55a8b979a3aa5d30` (reliability lens) **approved**, acknowledged and burned. No CLI
+      subcommand yet. Leak guard could not run at commit (`EXPENSUCHIS_LEDGER_DIR` unset; content is
+      public FX data). Non-blocking follow-ups from the review, open:
+      R3-001 (WARNING) an empty payload passes validation and `refresh` overwrites a good cache with
+      zero quotes; R3-002 (WARNING) a cached `NaN` escapes as `decimal.InvalidOperation` instead of
+      `CacheError`, `Infinity` loads, and cached rates are not required to be strings; R3-003 most
+      `_read_cache` rejection branches are untested; R3-004 `http.client.HTTPException` (e.g.
+      `IncompleteRead`) escapes `fetch` unwrapped instead of `FetchError`.
 - [x] T-04a: **Import primitives.** `LedgerPaths` (the ledger directory layout, every derived
       path validated to be outside every discoverable repository, not just the base),
       `numbers.py` (the locale amount parser: Argentine and plain formats, leading and
