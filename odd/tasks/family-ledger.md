@@ -570,10 +570,26 @@ market rate. Confirm the exact presentation against a real statement before enco
       gate matrix. **Closed 2026-09-25** — commits `b218459` (importer), `8805d26` (probe),
       `81cdc36` (docs); native review `review-9972c11f5e343edd` approved with **no correction**.
       See *T-05b delivered* below.
-- [ ] T-06: Banco Provincia importers, **format confirmed against real files**: the account
-      `Extracto de cuenta` (quarterly, dot-decimal, `Saldo` on every row → row-by-row
-      self-verification) and the `Liquidación Visa` (monthly, Argentine comma-decimal, **trailing
-      minus**, `C.NN/NN` installments, `TC` rate). — depends on T-04.
+- [x] T-06a: **Banco Provincia account `Extracto de cuenta`** (quarterly, dot-decimal,
+      `Saldo` on every row → row-by-row self-verification). Split out of T-06 on
+      2026-09-25 because the two formats share almost nothing: the account is dot-decimal
+      with a running balance, the card is comma-decimal with no balance chain. Recon
+      (masked shape dump, 2026-09-25) settled the geometry: header `Fecha Concepto
+      Importe Fecha Valor Saldo` repeats every page; the first data row is `SALDO
+      ANTERIOR`; a movement is either a compact reference row (`Nº.XXXXX dd/dd-X.XXXXXX
+      X:XXXXXXXXXXX <amount> dd-mm <saldo>`, no description) or a description row
+      (`<VERB> DE ...` / `<VERB> TARJETA ...`), with wrapped descriptions spanning two
+      lines and the amount/date/saldo on the continuation. Vocabulary (counts from the
+      probe): `compra` 35, `pago` 12, `sueldo` 11, `intereses` 5, `crédito` 5, `depósito`
+      5, `haberes` 3, `comisión` 3, `cargos` 2, `devolución` 1, `débito` 1, `recarga` 1.
+      The reference rows carry no description, so their classification is a design
+      decision to document (not silently default). — depends on T-04.
+      **Delivered 2026-09-26** — commits `3daa513` (importer), `536a1a7` (probe),
+      `e96e6d5` (the counterparty-identity contract). See *T-06a delivered* below.
+- [ ] T-06b: **Banco Provincia `Liquidación Visa`** (monthly, Argentine comma-decimal,
+      **trailing minus**, `C.NN/NN` installments, USD rows, merchant `*` prefixes, **no**
+      running balance, sign inverted: a purchase grows the card liability). Split out of
+      T-06 with T-06a. — depends on T-04.
 - [ ] T-07: BBVA importers, **format confirmed against real files**: the account
       (`DÉBITO`/`CRÉDITO`/`SALDO`) and the Visa and Mastercard statements (**`PESOS` and
       `DÓLARES` columns**, `C.NN/NN` installments). Requires adding `pypdfium2` as a declared
@@ -1216,6 +1232,51 @@ need rows in `counterparties.tsv`. The refusal lists each one with date, amount,
 name and the row to append, so the classification pass is mechanical. Re-running `extract` after
 each batch of rows produces a fresh digest and therefore a fresh approval; that is the gate working,
 not an obstacle.
+
+### T-06a delivered (2026-09-26) — the account extracto, and the two decisions it forced
+
+`src/expensuchis/importers/provincia.py` (the pure-text parser for the quarterly
+`Extracto de Cuenta`) and `provincia_importer.py` (the wiring), a masked-aggregates
+`tools/probe_provincia.py`, four synthetic geometry fixtures, and the
+parser/importer/probe suites. Registered in `get_importers()` beside Mercado Pago.
+**427 passed / 2 skipped**, `ruff` clean.
+
+The parser reconciles the running-balance chain row by row **and** the last page's
+closing summary (final balance + total debits), so a dropped last row, a truncated
+document or a 0-movement document is refused rather than accepted. The closing-summary
+sign convention is pinned by 31 tests.
+
+**Two decisions the user made, because only the statement's owner could:**
+
+- **`compra TARJETA` is a debit-card purchase** (case (c)), not a credit-card accrual.
+  It posts through `CounterpartyMap` like any `compra`; only `pago VISA` settles
+  `Liabilities:Provincia:<person>:Visa`. Routing it through the map exposed that the
+  raw description is **not stable** (per-row id and date/time), so the map key is now
+  a **normalized identity** — the merchant with those stripped — and the contract in
+  `counterparties.py` / `docs/import-workflow.md` was restated accordingly.
+- **The reference rows are immediate transfers**, and their `c:` field is the
+  recipient's CUIT/CUIL (personal data). They post to
+  `Assets:TransferenciaEnTransito`; the CUIT is key material only and is redacted from
+  the CLI-printed refusal.
+
+**The independent verifier ran twice:** six defects on the first pass (all fixed and
+pinned) and one new HIGH on the second (the unstable map key), also fixed. **The native
+review found two CRITICAL findings** — the refusal echoed the raw description, which can
+carry the CUIT — corrected with a CUIT redactor; the corrected candidate then
+**approved** (4 lenses, authority burned). Nine advisory findings remain as later work,
+none blocking; `R1-cuit-redaction-hyphenated-form` (the hyphenated `20-12345678-9` shape
+is not matched by the 11-digit redactor) is the one to act on when the real file is next
+imported.
+
+**One process cost, recorded because it was avoidable.** Resolving the untracked
+selection for the *corrected* candidate with `select-intended-untracked` **opened a
+second lineage** instead of continuing the first, leaving the original in
+`correction_required` and holding its candidate view. That view trips privacy guard #2
+by design (the guard scans `.git/gentle-ai/**`), so the pre-commit hook refused the
+commit. The stale lineage was quarantined (`review abandon`, `operator_disposition`) and
+the residual view removed by hand, both with the user's explicit authorization. The
+lesson: the untracked selection belongs to the *pre-lineage* start, never to a mid-review
+correction.
 
 ## Next step
 
