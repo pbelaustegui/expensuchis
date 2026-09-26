@@ -589,7 +589,12 @@ market rate. Confirm the exact presentation against a real statement before enco
 - [ ] T-06b: **Banco Provincia `Liquidación Visa`** (monthly, Argentine comma-decimal,
       **trailing minus**, `C.NN/NN` installments, USD rows, merchant `*` prefixes, **no**
       running balance, sign inverted: a purchase grows the card liability). Split out of
-      T-06 with T-06a. — depends on T-04.
+      T-06 with T-06a. — depends on T-04. **Reconnaissance closed 2026-09-26** (masked,
+      one real file) and **four owner decisions recorded**: the `SU PAGO EN PESOS` row is the card
+      payment and emits no entry (the extracto owns the cash movement), USD purchases are model
+      case (b) against `…:VisaUSD` with no `@` price, and charge rows are recognized by shape
+      (`Impuestos:Sellos` / `Impuestos:Percepciones`), any other shape refusing the import. The
+      geometry and the two-sum reconciliation gate: see *T-06b reconnaissance* below.
 - [ ] T-07: BBVA importers, **format confirmed against real files**: the account
       (`DÉBITO`/`CRÉDITO`/`SALDO`) and the Visa and Mastercard statements (**`PESOS` and
       `DÓLARES` columns**, `C.NN/NN` installments). Requires adding `pypdfium2` as a declared
@@ -1278,18 +1283,142 @@ the residual view removed by hand, both with the user's explicit authorization. 
 lesson: the untracked selection belongs to the *pre-lineage* start, never to a mid-review
 correction.
 
+### T-06b reconnaissance (2026-09-26) — the card liquidación, mapped without reading it
+
+The statement never entered an agent's context. `pypdfium2` character boxes grouped by `y`
+(2pt tolerance) gave every token an `x` position, and each dump printed **shape only** — digits
+as `9`, letters as `A`, width preserved — restoring nothing but a whitelist of generic statement
+words. Every number below comes from booleans, buckets and sums compared inside the process; no
+amount, merchant, reference or holder reached a transcript. The scratch scripts lived in `/tmp`,
+never in the repository.
+
+The real file is a 6-page `Liquidación` (sha256-12 `6ba02c96e474`), and it shares almost nothing
+with the account extracto: Argentine comma-decimal, **no running balance**, and the sign is
+inverted (a purchase grows the card liability).
+
+**Money block (page 1), in `x` space:**
+
+| x | field |
+| --- | --- |
+| 18 | year (2 digits) — part of a **merged cell** |
+| 32 | month name — same merged cell |
+| 73 | day of the purchase (present on every row) |
+| 88 | comprobante (6 digits, distinct across all 12 rows) |
+| 122 | `*` marker (some rows) |
+| 137 | description (merchant, `*` prefixes, optional trailing words) |
+| 277 | `C.NN/NN` installment marker (9 of 12 rows) |
+| 427 | amount in ARS (11 of 12 rows) |
+| 547 | amount in USD (1 of 12 rows) |
+
+Document order: a **10-line letterhead repeated identically on all six pages** (it carries
+`LÍMITE: COMPRA $ … DISPONIBLE $ …`, so it is stationery, not a total) → `SALDO ANTERIOR <ARS>
+<USD>` → the two `SU PAGO EN PESOS` rows → a rule of underscores → **12 consumption rows** →
+the total row → **5 charge rows**. Pages 2-5 are legal prose; page 6 is a financing box plus two
+payment coupons.
+
+The coupons are the trap: they carry **6-digit numbers in other columns** (x=248/348/497) and
+18-digit barcodes, so "the line contains a 6-digit token" is not a movement rule, and neither is
+"the line contains an amount".
+
+**The leading `x=18` token is the year, not a day.** It is constant in every row that carries it
+(bucket 20-27), it is greater than that row's day in five of six rows, and smaller only in the
+charge row whose day is 31. The per-row day is the token at `x=73`: all 12 fall in 1..31, 11 are
+distinct, and they ascend inside each month group (3, 6, 20 / 11, 12, 12, 31 / 9, 10, 17, 23).
+The merged cell holds year and month, is drawn **once per group** (4 of 12 rows), and is why one
+statement mixes purchase months by design. Observed installment denominators: 03, 04, 06, 12;
+the leading `x=18`/`x=32` cell also leads the charge block.
+
+**The reconciliation gate closes exactly, and it is two independent sums:**
+
+- the 11 ARS amounts at `x≈427` sum to the printed `Total Consumos` figure in ARS (`x=422`);
+- the USD amount of the single USD row equals the printed USD figure (`x=542`).
+
+Both equalities were verified in-process. The total row is recognized by the folded phrase
+`TOTAL CONSUMOS` — present only in this document type — plus its two amounts.
+
+**`identify` markers are disjoint**, probed by presence of generic words: `liquidacion`,
+`consumos`, `total consumos`, `cierre`, `vencimiento`, `disponible` and `cuotas` appear **only**
+in the liquidación; `extracto` and `trimestral` only in the account extracto. The existing
+extracto marker is `Extracto de Cuenta`.
+
+**A plain-text parser stays viable**: the extracted text order matches the `x` order, so no new
+primitive is needed and `read_pdf`'s contract does not change. (`pypdf` is not installed; only
+`pypdfium2` is. `read_pdf` takes a path, not bytes, and returns `(text, page_count)`.)
+
+#### Four decisions the statement's owner made (2026-09-26)
+
+1. **`SU PAGO EN PESOS` is the card payment, not a consumption.** It produces no expense; the
+   expenses come from the consumos detail, exactly as the model says.
+2. **The payment's cash movement belongs to the savings account of the same bank.** The
+   liquidación **parses and reconciles the payment row and emits no entry for it**: the
+   settlement is owned by the account extracto (T-06a), which already posts `pago VISA` against
+   `Liabilities:Provincia:<person>:Visa` and `Assets:Provincia:<person>:Caja`. Posting it again
+   here would reduce the liability twice. Recorded consequence: if the card carries a USD
+   balance, the USD half of a payment can only be settled from a **USD account statement**, and
+   none is imported yet (T-03/T-07/T-08 own that) — a follow-up, not a blocker.
+3. **USD purchases are model case (b)**, not case (a): the card holds a USD balance. The row
+   prints the same amount in the "importe" and "dólares" columns and **no** ARS amount, and both
+   the total and `SALDO ANTERIOR` carry a USD column. So a USD purchase posts `Expenses:* <USD>`
+   against `Liabilities:Provincia:<person>:VisaUSD` with **no `@` price** — there is no
+   administrative conversion on this statement to observe, and deriving one from a market rate
+   is the failure the model forbids.
+4. **Charge rows are recognized by shape, not by label.** `IMPUESTO DE SELLOS` in either currency
+   posts to `Expenses:Impuestos:Sellos`; a charge row carrying a regime number, a `%` rate and a
+   **parenthesized base** before its amount is a perception and posts to
+   `Expenses:Impuestos:Percepciones` (the fifth row, whose label the owner did not need to read,
+   is one of these). Any other charge shape **refuses the import** rather than guessing — a new
+   regime must be added deliberately, and a re-labelled row cannot silently become an expense.
+5. **Installment rows realize the model's accrual convention through a *plan* key.** A row carrying
+   `C.NN/TOT` is not a monthly expense: the importer emits **one** transaction at the purchase date
+   for `installment_amount × TOT` with the `installments` / `first_due` / `installment_amount`
+   metadata `docs/accounting-model.md` fixes, and its natural `key` is derived from the **plan**
+   (person, purchase date, total installments, normalized merchant) rather than from the statement
+   row. The same plan seen in a later statement therefore produces the same key, and the pipeline's
+   existing *"key already in the ledger"* rule drops it instead of charging it twice — the mechanism
+   T-N+2's double-counting guard will assert. `first_due` comes from the statement's own
+   `VENCIMIENTO` line minus `NN-1` months, so a plan first seen at `C.03/12` still records the month
+   its first installment was due.
+6. **The parser's checks are the gate, and its failures are masked.** `parse_liquidacion` refuses
+   the document unless: every line inside the money block is classified (an unknown line refuses
+   instead of being dropped); the two sums match the printed total; comprobantes are unique; every
+   merged-cell year equals the header year; and every day is valid for its month. Its error messages
+   carry counts, indexes and line numbers — never a description, a reference or an amount, which is
+   the lesson T-06a's refusal taught at the cost of two CRITICAL findings.
+
+#### The candidate is reviewed as a chained sequence, not as one diff (provider verdict, 2026-09-26)
+
+The first `review.start` for the finished T-06b candidate came back as a **provider-owned preflight
+failure** — `lens_context_budget_exceeded`: the reviewers' complete evidence does not fit the native
+context budget, no review authority was created, and retrying the same candidate cannot succeed
+because the immutable evidence is never truncated. The provider's own prescription is to split the
+work into a **chained sequence of smaller reviewable commits**, each under the budget, and to review
+each reduced scope in turn.
+
+The work therefore lands as four work units, and each one is reviewed over its own committed range
+(`committedOnly`, with the previous unit as `baseRef`) before delivery:
+
+1. `docs` — this tracker section: the reconnaissance, the four owner decisions and the plan.
+2. `feat(import)` — the parser: `provincia_visa.py`, its synthetic fixtures and its parser suite.
+3. `feat(import)` — the wiring: `provincia_visa_importer.py`, the registry entry, the importer suite
+   and the registration expectation the new identity moves.
+4. `test(probe)` — the masked-aggregates acceptance probe and its suite.
+
+Reconnaissance, decisions and the plan stay the authority for every unit, which is why the docs unit
+is the first commit rather than the last.
+
 ## Next step
 
-1. Reconnaissance **closed for all four sources** (nine files, no OCR). T-01, T-01b, T-02, T-04a,
-   T-04b, T-04c and **T-05a** are closed.
-2. **T-05b is closed and the importer is registered.** The next step is the **user's first real
-   import**: move the downloaded statements under `statements/MercadoPago/<person>/`, run
-   `extract`, classify the counterparties the refusal lists, and re-run. After that pass the map
-   is learned and later months resolve without a human, with the digest gate intact.
+1. **T-06b is the active task**
+2. **T-05b is closed and the first real Mercado Pago import ran** (3 people, 81 movements,
+   `bean-check` clean); **T-06a is closed** (Provincia account extracto, reviewed and committed).
+   T-06b's implementation is what remains: the parser, the wiring, the registry entry, synthetic
+   fixtures, tests and the probe extension — with the geometry and the four owner decisions above
+   as the contract.
 3. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
    first real month is ingested.
 4. **T-01c** (`ruff format` drift across nine files) and **T-01d** (redact the leak guard's failure
    output) remain open and deliberately untouched: both are cosmetic-or-control changes and belong
    in their own reviewed units.
 5. Still open: whether Mercado Pago issues a `RESUMEN DE CUENTA EN DÓLARES`, and whether it has a
-   card statement separate from the account statement.
+   card statement separate from the account statement. Still open from T-06a: the hyphenated CUIT
+   form (`20-12345678-9`) is not matched by the redactor.
