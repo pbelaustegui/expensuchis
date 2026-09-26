@@ -26,6 +26,8 @@ ACCESSORS = [
     ("staging_dir", lambda paths: paths.staging_dir()),
     ("staging_batch", lambda paths: paths.staging_batch("batch-1")),
     ("counterparties", lambda paths: paths.counterparties()),
+    ("fx_dir", lambda paths: paths.fx_dir()),
+    ("fx_series", lambda paths: paths.fx_series("bolsa")),
     ("ensure", lambda paths: paths.ensure()),
 ]
 
@@ -49,6 +51,8 @@ def test_accessors_derive_every_path_from_the_ledger_root(ledger: Path) -> None:
     assert paths.staging_dir() == ledger.resolve() / "staging"
     assert paths.staging_batch("2026-09-p1") == ledger.resolve() / "staging" / "2026-09-p1"
     assert paths.counterparties() == ledger.resolve() / "counterparties.tsv"
+    assert paths.fx_dir() == ledger.resolve() / "fx"
+    assert paths.fx_series("bolsa") == ledger.resolve() / "fx" / "bolsa.json"
 
 
 def test_transaction_file_uses_the_month_of_the_date(ledger: Path) -> None:
@@ -78,9 +82,10 @@ def test_ensure_is_idempotent_and_creates_only_inside(ledger: Path) -> None:
     assert paths.transactions_dir().is_dir()
     assert paths.statements_dir().is_dir()
     assert paths.staging_dir().is_dir()
+    assert paths.fx_dir().is_dir()
 
     created = sorted(entry.name for entry in ledger.iterdir())
-    assert created == ["staging", "statements", "transactions"]
+    assert created == ["fx", "staging", "statements", "transactions"]
 
 
 def test_ledger_dir_inside_repository_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -129,6 +134,8 @@ def test_statement_and_staging_names_cannot_escape_the_ledger(ledger: Path) -> N
             paths.statement_dir(bad)
         with pytest.raises(LedgerDirError):
             paths.staging_batch(bad)
+        with pytest.raises(LedgerDirError):
+            paths.fx_series(bad)
 
 
 def test_root_is_re_validated_after_the_base_is_swapped(ledger: Path) -> None:

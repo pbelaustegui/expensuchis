@@ -25,6 +25,7 @@ The layout is::
       statements/<Source>/...           the raw files the user downloads
       staging/<batch-id>/               proposed batches awaiting review
       counterparties.tsv                the learned counterparty map
+      fx/<series>.json                  cached USD series (MEP, CCL), one file each
 
 Reading a path never creates anything. :meth:`LedgerPaths.ensure` is the only
 place that touches the filesystem, and it only creates directories inside the
@@ -46,6 +47,7 @@ _TRANSACTIONS = "transactions"
 _STATEMENTS = "statements"
 _STAGING = "staging"
 _COUNTERPARTIES = "counterparties.tsv"
+_FX = "fx"
 
 
 def _safe_name(value: str, what: str) -> str:
@@ -128,6 +130,14 @@ class LedgerPaths:
         """The learned counterparty map (personal data, so it lives here)."""
         return self._validated(self._root / _COUNTERPARTIES)
 
+    def fx_dir(self) -> Path:
+        """The directory holding cached USD series (MEP, CCL)."""
+        return self._validated(self._root / _FX)
+
+    def fx_series(self, name: str) -> Path:
+        """The cache file for one FX series ``name`` (for example ``bolsa``)."""
+        return self._validated(self._root / _FX / f"{_safe_name(name, 'fx series')}.json")
+
     def ensure(self) -> None:
         """Create the ledger directory structure idempotently.
 
@@ -140,5 +150,6 @@ class LedgerPaths:
             self._root / _TRANSACTIONS,
             self._root / _STATEMENTS,
             self._root / _STAGING,
+            self._root / _FX,
         ):
             self._validated(directory).mkdir(parents=True, exist_ok=True)
