@@ -28,6 +28,7 @@ ACCESSORS = [
     ("counterparties", lambda paths: paths.counterparties()),
     ("fx_dir", lambda paths: paths.fx_dir()),
     ("fx_series", lambda paths: paths.fx_series("bolsa")),
+    ("redaction_key", lambda paths: paths.redaction_key()),
     ("ensure", lambda paths: paths.ensure()),
 ]
 
@@ -53,6 +54,7 @@ def test_accessors_derive_every_path_from_the_ledger_root(ledger: Path) -> None:
     assert paths.counterparties() == ledger.resolve() / "counterparties.tsv"
     assert paths.fx_dir() == ledger.resolve() / "fx"
     assert paths.fx_series("bolsa") == ledger.resolve() / "fx" / "bolsa.json"
+    assert paths.redaction_key() == ledger.resolve() / "redaction.key"
 
 
 def test_transaction_file_uses_the_month_of_the_date(ledger: Path) -> None:
@@ -70,8 +72,10 @@ def test_reading_a_path_creates_nothing(ledger: Path) -> None:
     paths.transaction_file(dt.date(2026, 2, 10))
     paths.counterparties()
     paths.staging_batch("batch-1")
+    key_path = paths.redaction_key()
     for accessor in (paths.main(), paths.accounts(), paths.transactions_dir()):
         assert not accessor.exists()
+    assert not key_path.exists()
 
 
 def test_ensure_is_idempotent_and_creates_only_inside(ledger: Path) -> None:

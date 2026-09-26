@@ -26,6 +26,7 @@ The layout is::
       staging/<batch-id>/               proposed batches awaiting review
       counterparties.tsv                the learned counterparty map
       fx/<series>.json                  cached USD series (MEP, CCL), one file each
+      redaction.key                     local HMAC key for redacted content hashes (T-01d)
 
 Reading a path never creates anything. :meth:`LedgerPaths.ensure` is the only
 place that touches the filesystem, and it only creates directories inside the
@@ -38,6 +39,7 @@ import datetime as dt
 from pathlib import Path
 
 from .ledger import LedgerDirError, assert_outside_repository, ledger_dir
+from .redact import REDACTION_KEY_FILENAME
 
 __all__ = ["LedgerPaths"]
 
@@ -48,6 +50,7 @@ _STATEMENTS = "statements"
 _STAGING = "staging"
 _COUNTERPARTIES = "counterparties.tsv"
 _FX = "fx"
+_REDACTION_KEY = REDACTION_KEY_FILENAME
 
 
 def _safe_name(value: str, what: str) -> str:
@@ -137,6 +140,15 @@ class LedgerPaths:
     def fx_series(self, name: str) -> Path:
         """The cache file for one FX series ``name`` (for example ``bolsa``)."""
         return self._validated(self._root / _FX / f"{_safe_name(name, 'fx series')}.json")
+
+    def redaction_key(self) -> Path:
+        """The local HMAC key used to compute keyed redaction hashes (T-01d follow-up).
+
+        Created lazily by :func:`expensuchis.redact.load_or_create_key` on first
+        use. This accessor only returns the validated path; reading it creates
+        nothing, consistent with every other accessor here.
+        """
+        return self._validated(self._root / _REDACTION_KEY)
 
     def ensure(self) -> None:
         """Create the ledger directory structure idempotently.

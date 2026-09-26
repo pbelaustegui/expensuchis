@@ -37,8 +37,26 @@ from beangulp import identify as beangulp_identify
 from beangulp.exceptions import Error as BeangulpIdentifyError
 
 from .importers import get_importers
+from .importers.mercadopago_importer import (
+    CounterpartyClassificationError as _MercadoPagoCounterpartyClassificationError,
+)
+from .importers.mercadopago_importer import (
+    StatementReadError as _MercadoPagoStatementReadError,
+)
+from .importers.provincia_importer import (
+    CounterpartyClassificationError as _ProvinciaCounterpartyClassificationError,
+)
+from .importers.provincia_importer import (
+    StatementReadError as _ProvinciaStatementReadError,
+)
+from .importers.provincia_visa_importer import (
+    CounterpartyClassificationError as _ProvinciaVisaCounterpartyClassificationError,
+)
+from .importers.provincia_visa_importer import (
+    StatementReadError as _ProvinciaVisaStatementReadError,
+)
 from .paths import LedgerPaths
-from .redact import content_hash
+from .redact import RedactionKeyError, content_hash, load_or_create_key
 
 __all__ = [
     "AMBIGUOUS_IMPORTER",
@@ -100,6 +118,36 @@ _BATCH = "batch.json"
 _REPORT = "report.txt"
 _APPROVAL = "approval.json"
 _APPEND = "append.json"
+
+#: Every source's own exception types whose message is already built deliberately
+#: to be safe -- one pair of classes per importer module, by design:
+#:
+#: * ``CounterpartyClassificationError`` (T-04c: 'never defaulted'). Its message
+#:   lists each unclassified counterparty with the context a human needs to
+#:   classify it, and ``docs/import-workflow.md`` ('Never defaulted') documents it
+#:   appearing verbatim after ``importer-raised``.
+#: * ``StatementReadError`` (T-05b). A reader failure is wrapped in this exception
+#:   with the failing exception's **class name only**, never the path or the raw
+#:   reader message, specifically so that ``pipeline.extract`` can re-wrap it and
+#:   the CLI can print it safely.
+#:
+#: These are the exception types whose ``str()`` the ``importer-raised`` refusal
+#: preserves; every other importer exception is reduced to its class name
+#: (R1-002/R3-002 below).
+_PRESERVED_MESSAGE_TYPES: tuple[type[Exception], ...] = (
+    _MercadoPagoCounterpartyClassificationError,
+    _MercadoPagoStatementReadError,
+    _ProvinciaCounterpartyClassificationError,
+    _ProvinciaStatementReadError,
+    _ProvinciaVisaCounterpartyClassificationError,
+    _ProvinciaVisaStatementReadError,
+)
+
+#: Fallback statement identifier for `importer-raised` when the statement's bytes
+#: or the redaction key cannot be read at all (R4-001/R3-001/R2-004 below). Naming
+#: is more useful than this most of the time, but a typed refusal must never turn
+#: into an unhandled OSError or RedactionKeyError while building one.
+_STATEMENT_ID_UNREADABLE = "unreadable"
 
 
 class PipelineError(RuntimeError):
@@ -240,11 +288,15 @@ def extract(
     except Exception as exc:
         # The statement is named by a content hash, never by its basename: the
         # basename can name the account holder (T-01d), and this message is what
-        # the CLI prints after "refused:".
-        statement_id = content_hash(statement.read_bytes())
+        # the CLI prints after "refused:". Neither the hash nor the failure text
+        # below may raise: a statement that is unreadable here, or a redaction key
+        # that cannot be loaded, must still produce this typed refusal, never an
+        # unhandled OSError or RedactionKeyError (R4-001/R3-001/R2-004).
+        statement_id = _safe_statement_id(paths, statement)
         raise PipelineError(
             IMPORTER_RAISED,
-            f"Importer {importer.name} refused statement {statement_id}: {exc}",
+            f"Importer {importer.name} refused statement {statement_id}: "
+            f"{_importer_failure_text(exc)}",
         ) from exc
 
     importer.sort(entries)
@@ -444,6 +496,45 @@ def _validate_source(source: str) -> None:
             INVALID_SOURCE,
             f"Invalid source {source!r}: it must be a single name, not a path.",
         )
+
+
+def _importer_failure_text(exc: Exception) -> str:
+    """Return the text to embed in the ``importer-raised`` refusal for ``exc``.
+
+    Only the exception's class name by default (R1-002/R3-002): an importer's raw
+    ``str()`` can carry the statement's path -- an ``OSError`` names it directly,
+    and a parser error can quote a line that includes it. ``exc`` stays chained
+    with ``from`` at the call site for local debugging.
+
+    :data:`_PRESERVED_MESSAGE_TYPES` is the exception -- each source's own
+    ``CounterpartyClassificationError`` and ``StatementReadError``, whose messages
+    are already built deliberately to be safe (see that constant's docstring).
+    Reducing either to a bare class name would silently break the documented
+    'never defaulted' workflow, or throw away the one safe detail
+    ``StatementReadError`` exists to carry, so both are preserved instead.
+    """
+    if isinstance(exc, _PRESERVED_MESSAGE_TYPES):
+        return str(exc)
+    return type(exc).__name__
+
+
+def _safe_statement_id(paths: LedgerPaths, statement: Path) -> str:
+    """Return a keyed content hash naming ``statement``, without letting I/O escape.
+
+    Called only while already handling an importer failure (T-01d follow-up,
+    R4-001/R3-001/R2-004): a statement that becomes unreadable between ``extract``'s
+    existence check and this point (for example, deleted by the same call that
+    raised), or a redaction key that cannot be loaded or is corrupt, must still
+    yield the typed ``importer-raised`` refusal below -- never an unhandled
+    ``OSError`` or :class:`~expensuchis.redact.RedactionKeyError`. Either failure
+    falls back to :data:`_STATEMENT_ID_UNREADABLE`.
+    """
+    try:
+        key = load_or_create_key(paths.redaction_key())
+        data = statement.read_bytes()
+    except (OSError, RedactionKeyError):
+        return _STATEMENT_ID_UNREADABLE
+    return content_hash(data, key)
 
 
 def _sha256_file(path: Path) -> str:

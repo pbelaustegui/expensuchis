@@ -305,11 +305,21 @@ refused: importer-raised: Importer MercadoPago refused statement <hash>: 2 count
       MercadoPago<TAB>Familiar Ejemplo<TAB>expense:<category>
 ```
 
-`<hash>` is a short content hash of the statement's bytes (`expensuchis.redact.content_hash`,
-the same helper and length the leak guard's redacted output uses), not the statement's
-basename: the basename can name the account holder, which is a leak path the pipeline used
-to fall into (fixed by **T-01d**, tracked in `odd/tasks/family-ledger.md`). There is no
-`--reveal` for this message; it is redacted unconditionally.
+`<hash>` is a short **keyed** content hash of the statement's bytes
+(`expensuchis.redact.content_hash`, the same helper and length the leak guard's
+redacted output uses), not the statement's basename: the basename can name the
+account holder, which is a leak path the pipeline used to fall into (fixed by
+**T-01d**, tracked in `odd/tasks/family-ledger.md`). The hash is HMAC-keyed with a
+local secret created on first use and stored only in the ledger directory
+(`LedgerPaths.redaction_key()`), not the plain unsalted hash an earlier release
+used, which a reader could otherwise brute-force. There is no `--reveal` for this
+message; it is redacted unconditionally. The one exception to the class-name-only
+rule below is a source's own `CounterpartyClassificationError`, shown above — its
+message is exactly this section's point, and reducing it to a class name would
+silently break this workflow. Every other importer failure names only its
+exception class, never its raw message, because that raw text can itself carry
+the statement's path (an `OSError` names it directly, and a parser error can quote
+a line that includes it).
 
 The suggested destination is literally `expense:<category>`: the importer **never chooses a
 category**, only the user can, so the placeholder is what the message prints. Replace

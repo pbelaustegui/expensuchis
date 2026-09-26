@@ -23,9 +23,18 @@ from beancount.parser import printer
 from beangulp import Importer
 
 from expensuchis import pipeline
+from expensuchis.importers.mercadopago_importer import (
+    CounterpartyClassificationError as MercadoPagoCounterpartyClassificationError,
+)
+from expensuchis.importers.provincia_importer import (
+    CounterpartyClassificationError as ProvinciaCounterpartyClassificationError,
+)
+from expensuchis.importers.provincia_visa_importer import (
+    CounterpartyClassificationError as ProvinciaVisaCounterpartyClassificationError,
+)
 from expensuchis.ledger import ENV_VAR
 from expensuchis.paths import LedgerPaths
-from expensuchis.redact import content_hash
+from expensuchis.redact import content_hash, load_or_create_key
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -70,6 +79,31 @@ class FakeImporter(Importer):
         if self._error is not None:
             raise self._error
         return list(self._entries)
+
+
+class _DeletingImporter(Importer):
+    """An importer that deletes its own statement, then fails (regression: R4-001).
+
+    Exercises the except handler's own hashing: by the time ``extract`` tries to
+    name the statement by content hash, the file is already gone.
+    """
+
+    def __init__(self, name):
+        self._name = name
+
+    @property
+    def name(self):
+        return self._name
+
+    def identify(self, filepath):
+        return str(filepath).endswith(".csv")
+
+    def account(self, filepath):
+        return "Assets:Test:Caja"
+
+    def extract(self, filepath, existing):
+        Path(filepath).unlink()
+        raise ValueError("boom after deleting the statement")
 
 
 def make_entry(
@@ -331,7 +365,7 @@ def test_extract_wraps_an_importer_failure_in_a_refusal(ledger: LedgerPaths) -> 
     with pytest.raises(pipeline.PipelineError) as excinfo:
         pipeline.extract(ledger, "Test", statement, importers=[importer])
     assert excinfo.value.reason == pipeline.IMPORTER_RAISED
-    assert "reconciliation failed" in str(excinfo.value)
+    assert "ValueError" in str(excinfo.value)
 
 
 def test_extract_refusal_redacts_the_statement_basename_with_a_content_hash(
@@ -347,10 +381,77 @@ def test_extract_refusal_redacts_the_statement_basename_with_a_content_hash(
         pipeline.extract(ledger, "Test", statement, importers=[importer])
 
     message = str(excinfo.value)
+    key = load_or_create_key(ledger.redaction_key())
     assert excinfo.value.reason == pipeline.IMPORTER_RAISED
     assert "statement.csv" not in message
-    assert content_hash(statement.read_bytes()) in message
-    assert "reconciliation failed" in message
+    assert content_hash(statement.read_bytes(), key) in message
+
+
+def test_extract_refusal_names_only_the_exception_class_never_its_message(
+    ledger: LedgerPaths,
+) -> None:
+    """R1-002/R3-002: an importer's raw ``str()`` can carry the statement's path."""
+    write_ledger(ledger)
+    statement = ledger.root / "some" / "nested" / "holder-name.csv"
+    statement.parent.mkdir(parents=True)
+    statement.write_text("x\n", encoding="utf-8")
+    importer = FakeImporter("boom", error=FileNotFoundError(f"cannot open {statement}"))
+
+    with pytest.raises(pipeline.PipelineError) as excinfo:
+        pipeline.extract(ledger, "Test", statement, importers=[importer])
+
+    message = str(excinfo.value)
+    assert excinfo.value.reason == pipeline.IMPORTER_RAISED
+    assert "FileNotFoundError" in message
+    assert str(statement) not in message
+    assert "holder-name.csv" not in message
+
+
+@pytest.mark.parametrize(
+    "error_cls",
+    [
+        MercadoPagoCounterpartyClassificationError,
+        ProvinciaCounterpartyClassificationError,
+        ProvinciaVisaCounterpartyClassificationError,
+    ],
+)
+def test_extract_preserves_the_counterparty_classification_message(
+    ledger: LedgerPaths, error_cls: type[Exception]
+) -> None:
+    """T-04c's 'never defaulted' refusal (docs/import-workflow.md) reaches the CLI verbatim."""
+    write_ledger(ledger)
+    statement = ledger.root / "statement.csv"
+    statement.write_text("x\n", encoding="utf-8")
+    message_text = (
+        "1 counterparties are not classified.\n"
+        '  2026-04-02  -25,000.00 ARS  "desc"  "Raw Name"\n'
+        "    append to counterparties.tsv:\n"
+        "      MercadoPago\tRaw Name\texpense:<category>"
+    )
+    importer = FakeImporter("boom", error=error_cls(message_text))
+
+    with pytest.raises(pipeline.PipelineError) as excinfo:
+        pipeline.extract(ledger, "Test", statement, importers=[importer])
+
+    assert excinfo.value.reason == pipeline.IMPORTER_RAISED
+    assert message_text in str(excinfo.value)
+
+
+def test_extract_refusal_survives_a_statement_deleted_during_extract(
+    ledger: LedgerPaths,
+) -> None:
+    """R4-001/R3-001/R2-004: hashing must not turn a typed refusal into an unhandled OSError."""
+    write_ledger(ledger)
+    statement = ledger.root / "statement.csv"
+    statement.write_text("x\n", encoding="utf-8")
+    importer = _DeletingImporter("boom")
+
+    with pytest.raises(pipeline.PipelineError) as excinfo:
+        pipeline.extract(ledger, "Test", statement, importers=[importer])
+
+    assert excinfo.value.reason == pipeline.IMPORTER_RAISED
+    assert "unreadable" in str(excinfo.value)
+    assert "ValueError" in str(excinfo.value)
 
 
 # --------------------------------------------------------------------------- approve

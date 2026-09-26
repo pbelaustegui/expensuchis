@@ -12,6 +12,7 @@ run never needs ``pypdfium2`` to be importable.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 import subprocess
@@ -25,6 +26,7 @@ from expensuchis.leakguard import (
     BASELINE_FILENAME,
     EXIT_CODES,
     INDEX_FILENAME,
+    Finding,
     GuardStatus,
     build_index,
     derived_legitimate_numbers,
@@ -39,7 +41,13 @@ from expensuchis.leakguard import (
     statement_files,
 )
 from expensuchis.ledger import ENV_VAR
-from expensuchis.redact import content_hash
+from expensuchis.redact import (
+    HASH_LENGTH,
+    REDACTION_KEY_FILENAME,
+    RedactionKeyError,
+    content_hash,
+    load_or_create_key,
+)
 
 _PYPIUM_AVAILABLE = importlib.util.find_spec("pypdfium2") is not None
 
@@ -200,13 +208,88 @@ def test_default_finding_output_is_redacted_but_locatable(ledger: Path) -> None:
     assert result.status is GuardStatus.LEAK
 
     output = format_result(result, reveal=False)
+    key = load_or_create_key(ledger / REDACTION_KEY_FILENAME)
 
     assert "proveedorinventado" not in output.lower()
     assert "resumen.pdf" not in output
     assert "statements/resumen.pdf" not in output
-    assert content_hash(b"proveedorinventado") in output
+    assert content_hash(b"proveedorinventado", key) in output
     assert "18-letter word" in output
     assert "odd/tasks/x.md:1" in output
+
+
+def test_the_redacted_hash_is_keyed_not_the_plain_content_hash(ledger: Path) -> None:
+    """T-01d follow-up (R1-001/R3-003): the hash must not be brute-forceable unkeyed."""
+    _statement(ledger, "resumen.pdf", "PROVEEDORINVENTADO")
+    source, _ = _text_source()
+
+    result = evaluate(
+        {"odd/tasks/x.md": "pago a ProveedorInventado"},
+        source=source,
+        ledger_root=ledger,
+    )
+    output = format_result(result, reveal=False)
+
+    unsalted = hashlib.sha256(b"proveedorinventado").hexdigest()[:HASH_LENGTH]
+    assert unsalted not in output
+
+
+def test_the_redacted_hash_is_stable_across_runs_on_the_same_ledger(ledger: Path) -> None:
+    """The key is created once and reused, so a hash printed twice is recognisable."""
+    _statement(ledger, "resumen.pdf", "PROVEEDORINVENTADO")
+    source, _ = _text_source()
+    texts = {"odd/tasks/x.md": "pago a ProveedorInventado"}
+
+    first = format_result(evaluate(texts, source=source, ledger_root=ledger), reveal=False)
+    second = format_result(evaluate(texts, source=source, ledger_root=ledger), reveal=False)
+
+    assert first == second
+
+
+def test_the_redacted_hash_differs_across_ledgers_with_different_keys(
+    ledger: Path, tmp_path: Path
+) -> None:
+    _statement(ledger, "resumen.pdf", "PROVEEDORINVENTADO")
+    other_ledger = tmp_path / "other-ledger"
+    (other_ledger / "statements").mkdir(parents=True)
+    _statement(other_ledger, "resumen.pdf", "PROVEEDORINVENTADO")
+    source, _ = _text_source()
+    texts = {"odd/tasks/x.md": "pago a ProveedorInventado"}
+
+    first = format_result(evaluate(texts, source=source, ledger_root=ledger), reveal=False)
+    second = format_result(evaluate(texts, source=source, ledger_root=other_ledger), reveal=False)
+
+    assert first != second
+
+
+def test_a_corrupt_redaction_key_crashes_rather_than_being_regenerated(ledger: Path) -> None:
+    """A corrupt key must never be silently regenerated (T-01d follow-up)."""
+    _statement(ledger, "resumen.pdf", "PROVEEDORINVENTADO")
+    (ledger / REDACTION_KEY_FILENAME).write_bytes(b"too-short")
+    source, _ = _text_source()
+
+    with pytest.raises(RedactionKeyError):
+        evaluate(
+            {"odd/tasks/x.md": "pago a ProveedorInventado"},
+            source=source,
+            ledger_root=ledger,
+        )
+
+
+def test_format_finding_without_a_key_omits_the_hash_instead_of_falling_back_unkeyed(
+    ledger: Path,
+) -> None:
+    """No ledger directory means no key; the redacted output must not fall back to
+    an unkeyed hash -- it omits the hash and says so (T-01d follow-up)."""
+    finding = Finding("proveedorinventado", "odd/tasks/x.md", 1, ("statements/resumen.pdf",))
+
+    line = format_finding(finding, reveal=False, key=None)
+
+    assert "proveedorinventado" not in line.lower()
+    assert "hash unavailable" in line
+    assert "18-letter word" in line
+    unsalted = hashlib.sha256(b"proveedorinventado").hexdigest()[:HASH_LENGTH]
+    assert unsalted not in line
 
 
 def test_reveal_shows_the_raw_token_and_the_statement_path(ledger: Path) -> None:
@@ -241,11 +324,12 @@ def test_format_finding_redacted_shows_digit_shape_for_a_numeric_token(ledger: P
     source, _ = _text_source()
     index = build_index(ledger, source=source)
     (finding,) = scan({"notes.md": "the sum was 123456"}, index, set())
+    key = load_or_create_key(ledger / REDACTION_KEY_FILENAME)
 
-    line = format_finding(finding, reveal=False)
+    line = format_finding(finding, reveal=False, key=key)
 
     assert "123456" not in line
-    assert content_hash(b"123456") in line
+    assert content_hash(b"123456", key) in line
     assert "6-digit number" in line
     assert "notes.md:1" in line
 

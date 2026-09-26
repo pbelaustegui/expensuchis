@@ -60,8 +60,12 @@ known to evade it and are recorded here rather than left implied:
   where that path contains the account holder's name — one real statement
   filename does — the output was not safe to paste into a public log. The default
   is now redacted (:func:`format_finding`, ``reveal=False``): a token's shape, a
-  short content hash and the repository file and line, never the token or the
-  path. ``--reveal`` restores the old output, for the owner at a terminal only;
+  short **keyed** content hash and the repository file and line, never the token
+  or the path. The hash is HMAC-keyed with a local secret stored in the ledger
+  directory (:mod:`expensuchis.redact`) — a follow-up fix, because the first
+  redacted release used an unsalted hash that a reader could brute-force against
+  the token's known length and character class. ``--reveal`` restores the old
+  output, for the owner at a terminal only;
 * a statement that parses to **empty text** (a scanned statement with no text
   layer, for example): it contributes no tokens and is silently ignored. The guard
   fails closed only when *every* statement is empty, not when one of them is;
@@ -132,10 +136,13 @@ Fail-closed contract
   silently. A **typo must not silently disable a safety control**, which is why a
   set-but-missing path is unreadable while an unset variable is not.
 * **Intersection with a non-baseline token** — :attr:`GuardStatus.LEAK`, exit 1.
-  Each finding is printed redacted by default: the token's shape, a short content
-  hash of the token, and the repository file and line it appeared in — never the
-  raw token, never the statement file it came from. ``--reveal`` restores the raw
-  token and the statement path, for the owner at a terminal only (T-01d).
+  Each finding is printed redacted by default: the token's shape, a short keyed
+  content hash of the token, and the repository file and line it appeared in —
+  never the raw token, never the statement file it came from. The key is loaded
+  (or created on first use) from the ledger directory; if it exists but is the
+  wrong length, the guard crashes (exit 3) rather than silently regenerating it.
+  ``--reveal`` restores the raw token and the statement path, for the owner at a
+  terminal only (T-01d).
 * **The guard itself crashes** — exit 3, deliberately distinct from ``LEAK`` (1)
   so that a crash is never reported as a leaked token.
 
@@ -180,9 +187,9 @@ tracked tree::
     python -m expensuchis.leakguard --message-file .git/COMMIT_EDITMSG
 
 Every one of these is redacted by default (T-01d): a finding shows the token's
-shape, a short content hash and its repository location, never the raw token or
-the statement path. Add ``--reveal`` at a terminal, as the owner, to see the raw
-token and the statement file(s) it matched::
+shape, a short keyed content hash and its repository location, never the raw
+token or the statement path. Add ``--reveal`` at a terminal, as the owner, to see
+the raw token and the statement file(s) it matched::
 
     python -m expensuchis.leakguard --tree --reveal
 
@@ -210,7 +217,7 @@ from pathlib import Path
 
 from .ledger import ENV_VAR, LedgerDirError, ledger_dir
 from .privacy import repository_root
-from .redact import content_hash
+from .redact import REDACTION_KEY_FILENAME, content_hash, load_or_create_key
 
 __all__ = [
     "BASELINE_FILENAME",
@@ -300,12 +307,19 @@ class Finding:
 
 @dataclass
 class GuardResult:
-    """The result of :func:`evaluate`, ready to print from :func:`main`."""
+    """The result of :func:`evaluate`, ready to print from :func:`main`.
+
+    ``redaction_key`` is the HMAC key :func:`format_result` needs to render
+    ``findings`` redacted; it is ``None`` whenever there are no findings to render
+    (:func:`evaluate` only loads it when it has both a ledger root and at least one
+    finding). ``repr=False`` keeps key material out of any incidental repr or log.
+    """
 
     status: GuardStatus
     message: str
     findings: list[Finding] = field(default_factory=list)
     tokens_indexed: int = 0
+    redaction_key: bytes | None = field(default=None, repr=False)
 
 
 def extract_tokens(text: str) -> set[str]:
@@ -623,6 +637,11 @@ def evaluate(
     derived = derived_legitimate_numbers(repo_root) if repo_root is not None else set()
     findings = scan(texts, index, baseline | derived)
     if findings:
+        # Loaded only here, not unconditionally: a clean run needs no hash, and a
+        # corrupt key file must not turn a clean commit into a crash. A genuine
+        # RedactionKeyError propagates uncaught, which `main`'s crash handler
+        # reports as exit 3 -- distinct from LEAK, never silently regenerated.
+        key = load_or_create_key(root / REDACTION_KEY_FILENAME)
         return GuardResult(
             GuardStatus.LEAK,
             f"leakguard refused: {len(findings)} statement-derived token(s) found in "
@@ -630,6 +649,7 @@ def evaluate(
             f"{root / BASELINE_FILENAME} deliberately, with a reason.",
             findings=findings,
             tokens_indexed=len(index.token_to_files),
+            redaction_key=key,
         )
     checkable_derived = sum(1 for number in derived if _is_checked(number))
     below_floor = len(derived) - checkable_derived
@@ -706,13 +726,20 @@ def _token_shape(token: str) -> str:
     return f"{len(token)}-letter word"
 
 
-def format_finding(finding: Finding, *, reveal: bool) -> str:
+def format_finding(finding: Finding, *, reveal: bool = False, key: bytes | None = None) -> str:
     """Render one finding, redacted by default (T-01d).
 
-    Redacted (``reveal=False``, the default): the token's shape, a short content
-    hash of the token, and the repository file and line -- never the raw token,
-    never the statement path. ``reveal=True`` restores the raw token and the
-    statement file(s) it matched, meant for the owner at a terminal only.
+    Redacted (``reveal=False``, the default): the token's shape, a short keyed
+    content hash of the token (:func:`expensuchis.redact.content_hash`), and the
+    repository file and line -- never the raw token, never the statement path.
+    ``reveal=True`` restores the raw token and the statement file(s) it matched,
+    meant for the owner at a terminal only, and ignores ``key``.
+
+    ``key`` must be the HMAC key from the same ledger the finding's index was
+    built from (:data:`GuardResult.redaction_key`). When it is ``None`` -- no
+    ledger directory was available -- the hash is **omitted**, never computed
+    unkeyed: an unkeyed hash of a short, shape-disclosed token is exactly the
+    brute-forceable output this redaction exists to avoid (T-01d follow-up).
     """
     location = (
         f"{finding.file}:{finding.line}" if finding.line else f"{finding.file} (line unknown)"
@@ -721,7 +748,9 @@ def format_finding(finding: Finding, *, reveal: bool) -> str:
         statements = ", ".join(finding.statements)
         return f"  token {finding.token!r} in {location} (statement: {statements})"
     shape = _token_shape(finding.token)
-    digest = content_hash(finding.token.encode("utf-8"))
+    if key is None:
+        return f"  {shape} in {location} (hash unavailable: no ledger directory)"
+    digest = content_hash(finding.token.encode("utf-8"), key)
     return f"  {shape} {digest} in {location}"
 
 
@@ -729,10 +758,13 @@ def format_result(result: GuardResult, *, reveal: bool = False) -> str:
     """Render a full guard result as :func:`main` prints it.
 
     One line per finding, via :func:`format_finding`; redacted unless
-    ``reveal=True``.
+    ``reveal=True``, using ``result.redaction_key`` to compute each hash.
     """
     lines = [result.message]
-    lines.extend(format_finding(finding, reveal=reveal) for finding in result.findings)
+    lines.extend(
+        format_finding(finding, reveal=reveal, key=result.redaction_key)
+        for finding in result.findings
+    )
     return "\n".join(lines)
 
 
