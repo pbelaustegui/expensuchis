@@ -1780,7 +1780,9 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    committed, the real-file probe passes (28 movements, all seven checks ok) and the
    `11b7059..eaad7cc` slice was reviewed (`review-341ee898cd4601c0`, approved and burned). The
    header-scan follow-up is fixed in `09ed714` (assessed medium, `under_budget`, 196 lines): its
-   review is pending in the slice from `eaad7cc`. **Next: T-07 (BBVA).** Still open from T-08: the
+   review is still pending. Lineage `review-fb189fc70aa3874f` (slice `eaad7cc..d1b6a7d`) is open
+   in `reviewing` because on 2026-09-27 the host-relay reviewer refused the review prompt twice
+   as a suspected prompt injection. That is a transport failure, not an approval. **Next: T-07 (BBVA).** Still open from T-08: the
    probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
