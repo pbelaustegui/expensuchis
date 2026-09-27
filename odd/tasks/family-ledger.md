@@ -1926,3 +1926,16 @@ PR targets the previous branch; each PR's diff matches its slice exactly). No CI
 GitHub lists no registered workflow for the repository, so Actions appears to be disabled for it —
 to be checked by the owner in the repository settings. This branch (`feat/family-ledger`, with
 BBVA) stays local until T-07 closes.
+
+**Publication recovery and PR #11 (2026-09-27; supersedes the two open points above).** The ten
+stacked PRs were merged in ascending order (#1 into `main` first), so each later merge landed on
+the previous branch and the chain never cascaded into `main`: GitHub marks PRs #2–#10 MERGED, but
+only PR #1's content reached `main` (`a0550be`). The full branch (all ten slices plus the BBVA
+follow-ups, 77 commits) was published as a single **PR #11** and merged as `291f6f4`; the local
+merge-tree test against `main` was conflict-free and CI is green. Actions is enabled and ran on the
+PR and on `main` (bean-check, pytest, ruff). The feature branches were deleted after tagging their
+cut tips as `backup/01-bootstrap` … `backup/10-brubank`; the pre-rewrite backup branch was dropped
+once the chain was published. BBVA (T-07) traveled inside PR #11 instead of staying local.
+
+**Lesson recorded:** stacked PRs must be merged in descending order (#10 first) or retargeted to
+`main` after each merge; GitHub's MERGED state alone does not prove the commits reached `main`.
