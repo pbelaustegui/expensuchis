@@ -1655,6 +1655,13 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
 
 ## Next step
 
+0. **Resume here (2026-09-26 close):** T-03 and T-01d are closed and reviewed; T-08a (the Brubank
+   parser) is delivered and reviewed, and its region fix `24ce845` is committed but still pending
+   review in the slice from `3130fb3`. Next is **T-08b** (wiring: accounts per row, `Intereses
+   pagados` to `Income:<person>:Intereses`, `De una cuenta tuya - <bank>` to
+   `Assets:TransferenciaEnTransito`, the rest through `counterparties.tsv`), then **T-08c** (probe
+   against the real file, which must confirm the header, period and generation-stamp shapes). Open
+   follow-ups are recorded in the T-03, T-01d and T-08 entries.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
    checklist — **T-03** (the MEP and CCL series) — plus the deferred T-01c/T-01d units and the
