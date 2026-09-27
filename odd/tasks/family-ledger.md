@@ -1465,6 +1465,41 @@ name and the row to append, so the classification pass is mechanical. Re-running
 each batch of rows produces a fresh digest and therefore a fresh approval; that is the gate working,
 not an obstacle.
 
+### T-07a reconnaissance (2026-09-27) — the BBVA account, mapped without reading it
+
+Same method as T-06b and T-08: shape-only dumps, quantities compared in-process, scratch scripts
+outside the repository and deleted. One masking slip: a class summary echoed two raw transfer
+amounts and an origin code into the session transcript (not into any file); later output masked
+every token.
+
+- **Files:** `statements/Bbva/` holds 4 PDFs plus 4 Windows `Zone.Identifier` sidecars (not PDFs;
+  pdfium refuses them). By markers: Mastercard card (4 pages), Visa card (4 pages), and **two
+  `Extracto consolidado` account statements** — no separate "unified" document was found.
+- **The two consolidated statements are different accounts:** one (6 pages) has a single `$`
+  account with activity; the other (4 pages) has **three** sub-accounts (a `$` account, a `$` caja
+  de ahorros and a `U$S` caja de ahorros), all `SIN MOVIMIENTOS`. No CBU is shared, and the months
+  overlap: likely a different holder.
+- **Movement table:** `FECHA | ORIGEN | CONCEPTO | DÉBITO | CRÉDITO | SALDO`, one per sub-account,
+  framed by `SALDO ANTERIOR`, rows, `SALDO AL <dd> DE <mes>` and `TOTAL MOVIMIENTOS <debits>
+  <credits>`. Rows are `dd/mm` **without a year**, and the period **crosses a month boundary**.
+  A 3-digit origin code precedes most concepts. Every row carries two amounts (movement +
+  running balance); **debits carry a leading minus**, credits none; Argentine format.
+- **Reconciliation, all True (36 rows):** the running-balance chain holds on every row;
+  opening + movements = closing; `TOTAL MOVIMIENTOS` equals the sums of debits and credits.
+- **Row classes:** `PAGO CON VISA DEBITO` 25 (−), `CUENTA VISA` 2 and `CUENTA MASTERCARD` 1 (−,
+  card settlements), `EXTRACCION ELEC+CASH` 1 (−), `TRANSFERENCIA` 3 (−, three shapes),
+  `TRANSFERENCIA INMEDIATA` 2 (+), `PAGO HABERES` 1 (+), `INTERESES GANADOS` 1 (+).
+- **New trap: debit-card purchases name no merchant in the table.** A separate
+  `TARJETAS DE DEBITO — DETALLE` section (before the table) lists them with full `dd/mm/yyyy`,
+  merchant text, one card last-4 and a **distinct 6-digit id per row**. Joined by (date, amount),
+  all 25 table rows match exactly one detail row, with no ambiguous key. The detail has **one extra
+  row dated before the table's first row**: its card cycle overlaps the previous statement.
+  Amounts alone repeat, so an amount-only join would be wrong.
+- **New trap: the sent transfers are detailed with the recipient's CUIT.** A section headed
+  `… CUENTA ORIGEN` has 3 rows (date, an 11-digit CUIT, a 10-digit account, `$` amount), each
+  matching the absolute value of one debit `TRANSFERENCIA`. Personal data: key material only,
+  redacted, as in Provincia.
+
 ### T-08 reconnaissance (2026-09-26) — the Brubank account, mapped without reading it
 
 Same method as T-06b: shape-only dumps, every quantity compared in-process, scratch scripts outside
