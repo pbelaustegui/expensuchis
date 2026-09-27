@@ -752,3 +752,74 @@ def test_a_duplicated_usd_header_field_refuses() -> None:
     assert "declared_credits" in message
     assert "USD" in message
     assert "2 time" in message
+
+
+# ------------------------------------------------------------- T-08 header-scan follow-up
+
+
+def test_a_debit_row_whose_description_ends_in_saldo_final_is_parsed_as_a_movement() -> None:
+    """A movement row is never a header field, even when its own free-text
+    description happens to end in a known label immediately followed by its
+    own ``$ <amount>`` cell. The description is naturally preceded by
+    whitespace, so only the outside-region restriction protects this case —
+    the word-boundary bound on the label alone would not.
+    """
+    text = MINIMAL.replace(
+        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.299,50",
+        "02-09-26 2345678901 Pago Saldo Final $ 1.200,50 - $ 12.299,50",
+    )
+    resumen = parse_resumen(text)
+    assert len(resumen.movements) == 2
+    assert resumen.movements[1].description == "Pago Saldo Final"
+    assert resumen.movements[1].amount == Decimal("-1200.50")
+    assert all(check.ok for check in resumen.checks)
+
+
+def test_a_debit_row_whose_description_ends_in_creditos_is_parsed_as_a_movement() -> None:
+    text = MINIMAL.replace(
+        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.299,50",
+        "02-09-26 2345678901 Ajuste Créditos $ 1.200,50 - $ 12.299,50",
+    )
+    resumen = parse_resumen(text)
+    assert len(resumen.movements) == 2
+    assert resumen.movements[1].description == "Ajuste Créditos"
+    assert all(check.ok for check in resumen.checks)
+
+
+def test_a_label_glued_inside_a_word_on_a_prose_line_is_not_a_header_field() -> None:
+    """The header-field label must start at a word boundary.
+
+    A prose line on the trailing legal page (outside any table region, where
+    the region restriction alone would not help) whose text happens to glue a
+    known label onto the end of another word, followed by a currency-and-
+    amount shape, must never be mistaken for a header field.
+    """
+    text = MULTIPAGE.replace(
+        "Términos y condiciones generales del resumen Banco Ejemplo S.A. Este documento",
+        "Términos y condiciones generales del resumen Banco Ejemplo S.A. "
+        "ComisionSaldo Final $ 999,99 Este documento",
+    )
+    resumen = parse_resumen(text)
+    assert resumen.closing == Decimal("59516.68")
+    assert all(check.ok for check in resumen.checks)
+
+
+def test_a_header_field_shaped_line_on_a_trailing_prose_page_still_counts() -> None:
+    """The outside-region restriction narrows what counts as a header field —
+
+    it does not stop counting one outside a region altogether. A properly
+    word-bounded header-field-shaped line on the trailing legal page (no
+    table region opens there at all) must still be read, including a
+    duplicate, which must still refuse.
+    """
+    text = MULTIPAGE.replace(
+        "Términos y condiciones generales del resumen Banco Ejemplo S.A. Este documento",
+        "Términos y condiciones generales del resumen Banco Ejemplo S.A. "
+        "Saldo Final $ 1,00 Este documento",
+    )
+    with pytest.raises(ResumenParseError) as excinfo:
+        parse_resumen(text)
+    message = str(excinfo.value)
+    assert "closing" in message
+    assert "2 time" in message
+    assert "1,00" not in message

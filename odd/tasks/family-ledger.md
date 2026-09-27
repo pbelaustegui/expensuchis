@@ -820,6 +820,17 @@ market rate. Confirm the exact presentation against a real statement before enco
       `_refusal_cause`'s USD bucket matches any message containing `USD`. (3) Stale "recap" wording
       in the probe docstring and two test comments, a stale `_HEADER_FIELD_RE` test docstring, and
       the currency markers duplicated between `_CURRENCY_ARS/_USD` and the regex.
+      **Follow-up (1) fixed 2026-09-27** — commit `edf6fe7` (a git self-reference is inexact: amending
+      to record a commit's own hash always produces a new hash; see `git log -1` on this branch for
+      the exact final value). `_header_block` now reads a header
+      field off a line only when it falls outside an open table region (a new shared
+      `_iter_table_regions` generator carries the one open/close state machine both it and
+      `_parse_movements` read, so the two can never disagree), and `_HEADER_FIELD_RE`'s label must
+      start at a word boundary (start of line or after whitespace), so a label glued onto the end of
+      another word never matches. Files: `src/expensuchis/importers/brubank.py`,
+      `tests/test_brubank_parser.py` (4 new tests). RED (fix reverted, tests only): 3 failed / 61
+      passed; GREEN: 752 passed / 2 skipped, `ruff check` clean. Route: delegated direct (writer
+      trigger: parser + test file, non-trivial). Follow-ups (2) and (3) are untouched — still open.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
@@ -1778,8 +1789,9 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    (`EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python tools/probe_brubank.py`, no `--text`) to
    confirm this fix against the actual statement and that `Intereses pagados` never appears as a
    debit (T-08b's fixed-destination assumption) — done, and the slice review closed T-08 (see the
-   T-08 entry). **Next:** the T-08 header-scan follow-up (restrict the header search to lines outside
-   table regions), then T-07 (BBVA). Open follow-ups are recorded in the T-03, T-01d and T-08 entries.
+   T-08 entry). The T-08 header-scan follow-up (restrict the header search to lines outside table
+   regions) is fixed — see the T-08 entry's 2026-09-27 follow-up note. **Next: T-07 (BBVA).** Open
+   follow-ups are recorded in the T-03, T-01d and T-08 entries.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
    checklist — **T-03** (the MEP and CCL series) — plus the deferred T-01c/T-01d units and the

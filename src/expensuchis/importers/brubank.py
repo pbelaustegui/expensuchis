@@ -30,7 +30,14 @@ digits) precedes the label, and the last line of a block merges two fields,
 field's own currency marker and amount. :data:`_HEADER_FIELD_RE` is searched
 anywhere in the line, not anchored to its start, and requires a currency
 marker (``$`` or ``U$S``) directly before the amount, so neither the left
-column's text nor its digits are ever mistaken for part of a field.
+column's text nor its digits are ever mistaken for part of a field. The label
+itself must start at a word boundary (the start of the line or right after
+whitespace), so a label glued onto the end of another word never matches. And
+because a movement row's description is free text, :func:`_header_block` only
+ever reads a header field off a line that falls **outside** an open table
+region — the same region model :func:`_parse_movements` uses — so a debit or
+credit row whose description happens to end in a known label immediately
+followed by its own ``$ <amount>`` cell is never mistaken for a header field.
 
 **The header block is not a repeating recap.** An earlier reading of this
 file's geometry (T-08a/T-08b) assumed the header opened the document and
@@ -142,7 +149,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
@@ -238,12 +245,21 @@ _HEADER_LABEL_ALTERNATION = "|".join(
 #: fragment — which may itself carry digits, such as ``CUIT <digits>``.
 #: Requiring the currency marker (``$``/``u$s``) directly before the amount
 #: means that fragment's own text or digits are never mistaken for part of a
-#: field. Two fields can share one line (``Imp. Trans. Financieras $ X Saldo
+#: field. The label must still start at a word boundary — the start of the
+#: line or right after whitespace — so a label glued onto the end of another
+#: word (e.g. a stray ``ComisionSaldo Final $ ...``) never matches; the
+#: left-column fragments the real file actually prints are always separated
+#: from the label by whitespace, so this costs nothing on the real shape.
+#: Two fields can share one line (``Imp. Trans. Financieras $ X Saldo
 #: Final $ Y``); :func:`_header_fields` uses ``finditer`` to find every
 #: non-overlapping match. :data:`_HEADER_LABELS` maps the matched label to the
-#: field it names.
+#: field it names. Being bounded on the label's start is not enough to keep a
+#: movement row's description from matching (a description is naturally
+#: preceded by whitespace too); :func:`_header_block` is what keeps a
+#: movement row out, by only reading fields off lines outside a table region.
 _HEADER_FIELD_RE = re.compile(
-    rf"(?P<label>{_HEADER_LABEL_ALTERNATION})\s*(?P<currency>\$|u\$s)\s*(?P<amount>{_ARS_AMOUNT})"
+    rf"(?:^|(?<=\s))(?P<label>{_HEADER_LABEL_ALTERNATION})\s*(?P<currency>\$|u\$s)\s*"
+    rf"(?P<amount>{_ARS_AMOUNT})"
 )
 #: The footer's period line: ``dd Mon yyyy al dd Mon yyyy``. Not anchored on its
 #: own, so :func:`_period` may find it sitting inside a longer footer line
@@ -478,6 +494,46 @@ def _header_fields(stripped: str) -> list[tuple[str, str, str]]:
     ]
 
 
+def _iter_table_regions(
+    rows: list[tuple[int, int, str]],
+) -> Iterator[tuple[int, int, str, str, bool]]:
+    """Yield ``(page, line, raw, stripped, in_region)`` for every row in ``rows``.
+
+    ``in_region`` is the table-region state *before* this line is considered:
+    whether it falls inside an already-open table region on this page (opened
+    right after a table-header line, not yet closed by a header field line,
+    the footer/period line, or a new page). The open/close transition lives
+    only here — :func:`_header_block` and :func:`_parse_movements` both read
+    this one state instead of each tracking their own copy, so the two can
+    never disagree about which lines a table region covers. See
+    :func:`_parse_movements` for what the region rules mean structurally.
+    """
+    in_region = False
+    current_page: int | None = None
+    for page, line, raw in rows:
+        if page != current_page:
+            current_page = page
+            in_region = False
+
+        stripped = raw.strip()
+        yield page, line, raw, stripped, in_region
+
+        if not in_region:
+            if _is_table_header(stripped):
+                in_region = True
+            continue
+
+        if stripped == "" or _is_table_header(stripped):
+            continue
+        if _DATE_PREFIX_RE.match(stripped) is not None:
+            continue
+        if _FOOTER_LINE_RE.fullmatch(stripped) is not None or _header_fields(stripped):
+            in_region = False
+            continue
+        # An unrecognized line inside an open region: the region stays open;
+        # _parse_movements is what raises on this, not this shadow state.
+
+
 def _header_block(rows: list[tuple[int, int, str]]) -> dict[str, Decimal]:
     """Return the five ARS header fields, validating an optional USD account block.
 
@@ -490,11 +546,22 @@ def _header_block(rows: list[tuple[int, int, str]]) -> dict[str, Decimal]:
     and opening equal to closing — the account never moved this period) and
     contributes nothing to the returned mapping; a USD block carrying any
     movement is refused, because no real file has confirmed that shape yet.
+
+    A header field is only ever read off a line **outside** an open table
+    region (:func:`_iter_table_regions`): a movement row's free-text
+    description can legitimately end in a known label immediately followed by
+    its own ``$ <amount>`` cell (e.g. a debit row description ending in
+    ``... Saldo Final $ 1.200,50``), and that amount is the row's own, never a
+    header figure. A header field line that itself *closes* an open region
+    (see :func:`_parse_movements`) is still read here — it is the region's
+    boundary, not one of its movement rows.
     """
     ars: dict[str, list[tuple[int, Decimal]]] = {field: [] for field in _HEADER_LABELS.values()}
     usd: dict[str, list[tuple[int, Decimal]]] = {field: [] for field in _HEADER_LABELS.values()}
-    for _page, line, raw in rows:
-        for field, currency, amount_raw in _header_fields(raw.strip()):
+    for _page, line, _raw, stripped, in_region in _iter_table_regions(rows):
+        if in_region and _DATE_PREFIX_RE.match(stripped) is not None:
+            continue  # a movement row inside the table is never a header field
+        for field, currency, amount_raw in _header_fields(stripped):
             bucket = ars if currency == _CURRENCY_ARS else usd
             bucket[field].append((line, _amount(amount_raw, line, field)))
 
@@ -671,18 +738,9 @@ def _parse_movements(rows: list[tuple[int, int, str]]) -> list[Movement]:
     flagged as its recurring CRITICAL finding.
     """
     movements: list[Movement] = []
-    in_region = False
-    current_page: int | None = None
-    for page, line, raw in rows:
-        if page != current_page:
-            current_page = page
-            in_region = False
-
-        stripped = raw.strip()
-
+    for page, line, _raw, stripped, in_region in _iter_table_regions(rows):
         if not in_region:
             if _is_table_header(stripped):
-                in_region = True
                 continue
             if _DATE_PREFIX_RE.match(stripped) is not None:
                 raise ResumenParseError(
@@ -699,10 +757,8 @@ def _parse_movements(rows: list[tuple[int, int, str]]) -> list[Movement]:
             movements.append(_movement_from_line(stripped, page, line))
             continue
         if _FOOTER_LINE_RE.fullmatch(stripped) is not None:
-            in_region = False
             continue
         if _header_fields(stripped):
-            in_region = False
             continue
 
         raise ResumenParseError(
