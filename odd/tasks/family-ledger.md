@@ -483,7 +483,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       directory. — checks: the sweep fails on a planted real token; an **absent** ledger
       directory prints the loud "cannot run" line and allows the commit; a ledger directory
       that is *configured but unusable* exits 2 and refuses the commit. **Closed 2026-09-24** —
-      commits `7dbf703` (the guard, alongside the import-primitive warnings) and `fec9a99`
+      commits `2603f41` (the guard, alongside the import-primitive warnings) and `4874eb7`
       (the README and docstrings corrected to claim only the behaviour that was measured).
 - [x] T-02: **Model the account tree and the accrual/cash convention** (the core design
       task, needs user input). Deliverable: `docs/accounting-model.md` plus a
@@ -507,7 +507,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       source, and the series sits behind a source interface so a switch is not a migration.
       Route: delegated direct (writer trigger: module + cache + tests + fixtures). TDD strict,
       runner `uv run pytest`.
-      **Closed 2026-09-26** — commit `13ba9f6` (`fx.py`, `LedgerPaths.fx_dir`/`fx_series`, 33
+      **Closed 2026-09-26** — commit `6bfe08a` (`fx.py`, `LedgerPaths.fx_dir`/`fx_series`, 33
       offline tests, two public fixtures). RED observed (`ImportError` on `expensuchis.fx`), then
       `uv run pytest -q` 588 passed / 2 skipped, `ruff check .` clean. Assessed medium
       (`slice_budget_reached`, 817 lines); owner granted review; native review
@@ -519,21 +519,21 @@ market rate. Confirm the exact presentation against a real statement before enco
       `CacheError`, `Infinity` loads, and cached rates are not required to be strings; R3-003 most
       `_read_cache` rejection branches are untested; R3-004 `http.client.HTTPException` (e.g.
       `IncompleteRead`) escapes `fetch` unwrapped instead of `FetchError`.
-      **R3-001 and R3-002 fixed 2026-09-26** in `493043d` (RED: 7 failed; GREEN: 599 passed / 2
+      **R3-001 and R3-002 fixed 2026-09-26** in `ff7368d` (RED: 7 failed; GREEN: 599 passed / 2
       skipped, ruff clean). Assessed medium, `review_due=false` (`under_budget`, 120 lines): pending
-      in the slice from boundary `7342258` until a later commit reaches the budget.
-      **R3-003 and R3-004 fixed 2026-09-26** in `849dc62`: `http.client.HTTPException` is now
+      in the slice from boundary `83fbcbe` until a later commit reaches the budget.
+      **R3-003 and R3-004 fixed 2026-09-26** in `be2866f`: `http.client.HTTPException` is now
       wrapped as `FetchError` (RED: 2 failed; GREEN: 624 passed / 2 skipped, ruff clean); 23 cache
       structure rejection cases added, all passing on first run as characterization (no behaviour
       change). Still untested: the `read_text` `OSError` branch of `_read_cache`. Slice from
-      `7342258` assessed medium, `under_budget` (246 lines): review still pending in the slice.
+      `83fbcbe` assessed medium, `under_budget` (246 lines): review still pending in the slice.
 - [x] T-04a: **Import primitives.** `LedgerPaths` (the ledger directory layout, every derived
       path validated to be outside every discoverable repository, not just the base),
       `numbers.py` (the locale amount parser: Argentine and plain formats, leading and
       **trailing** minus, strict rejection instead of guessing), and `counterparties.py` (the
       learned map, stored in the ledger directory because the names are personal data). Pure,
       table-driven-tested, no statement parsing. **Closed 2026-09-25** — commits `579e466`
-      (the primitives), with `7dbf703` closing the warnings that review left open. The checkbox
+      (the primitives), with `2603f41` closing the warnings that review left open. The checkbox
       stayed unticked through the leak-guard incident; corrected in the 2026-09-25
       reconciliation rather than left implicit.
 - [x] T-04b: **The workflow contract.** `identify → extract → human review → append → bean-check`
@@ -542,7 +542,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       and a `bean-check` gate that rolls back on failure. Plus `docs/import-workflow.md`.
       — depends on T-04a. **Closed 2026-09-25** — native review `review-5b534756e599835c` approved
       after one bounded correction (four CRITICAL findings, all candidate-caused), commits
-      `ab41013`, `0823343`, `e08f0d3`, `cde0e9a`. See *Native review of T-04b* below.
+      `8b8baa0`, `2dd84ba`, `a0c208b`, `a25d043`. See *Native review of T-04b* below.
 - [ ] T-01c: **Format the tree once under `ruff format` and add it to CI.** Nine files predate
       the formatter and drift; CI's gate is `ruff check .` only, so nothing is broken today, but
       the drift is invisible until someone runs `ruff format --check .` and finds nine red files.
@@ -569,11 +569,11 @@ market rate. Confirm the exact presentation against a real statement before enco
       because safety would depend on the caller remembering a flag, which already failed in T-05a.
       Route: delegated direct (writer trigger: guard, pipeline, CLI, tests, docs). TDD strict,
       runner `uv run pytest`.
-      **Closed 2026-09-26** — commit `db788f0` (`redact.py` shared `content_hash`, guard
+      **Closed 2026-09-26** — commit `12ce90a` (`redact.py` shared `content_hash`, guard
       `format_finding`/`format_result` and `--reveal`, `importer-raised` names the statement by
       hash). RED: collection errors on the missing `expensuchis.redact`/`format_finding`; GREEN: 632
       passed / 2 skipped, ruff clean. Hooks pass no `--reveal`; CI never runs the guard. The slice
-      from `7342258` (T-03 fixes `493043d`, `849dc62` plus this commit, 555 lines) was assessed
+      from `83fbcbe` (T-03 fixes `ff7368d`, `be2866f` plus this commit, 555 lines) was assessed
       **high** (`process_boundary` in `leakguard.py`); owner granted; four-lens native review
       `review-f5a56760c4aedbdd` **approved** with no correction, acknowledged and burned.
       Non-blocking follow-ups, open, in the order they matter:
@@ -591,7 +591,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       - Left out by the writer: no pipeline `--reveal`; `STATEMENT_MISSING` still prints the path
         the caller typed; `mercadopago_importer._unclassified_message` prints raw counterparty names
         by documented design.
-      **The three WARNINGs fixed 2026-09-26** in `ba638f1`: the hash is an HMAC under a 32-byte key
+      **The three WARNINGs fixed 2026-09-26** in `38b11b2`: the hash is an HMAC under a 32-byte key
       at `$EXPENSUCHIS_LEDGER_DIR/redaction.key` (created on first use, 0600, a corrupt key raises,
       no unkeyed fallback); the refusal carries only the exception class except each importer's
       `CounterpartyClassificationError` and `StatementReadError`, whose messages are built to be
@@ -624,7 +624,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       `mkdir -p` himself. The tool behaviour is right and its message names the fix; the document
       is what is incomplete. Found by running the quick path instead of reading it. **Closed
       2026-09-25** — native review `review-83a9010a1ddd5288` approved with **no correction** (medium
-      tier, one lens, 239 changed lines), commits `aea5ce0`, `3624fd9`. See *T-04c delivered* below.
+      tier, one lens, 239 changed lines), commits `8c87137`, `67119cb`. See *T-04c delivered* below.
 - [ ] T-05a: **The Mercado Pago parser core — the format knowledge lives here.** Pure over
       *extracted text* (no PDF library in the parser): movements with their running balance, and
       the five reconciliation checks (header arithmetic, sum of positives against *Entradas*,
@@ -635,7 +635,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       line per check) so the real statements can be verified without any statement content entering
       an agent's context. — split out of T-05 because the parser and the wiring are separately
       reviewable, and because the parser is the only place the format is encoded. **Closed
-      2026-09-25** — commit `43defe0`, reviewed twice: `review-87443c8fe0b24ecb` (approved, then
+      2026-09-25** — commit `adc1095`, reviewed twice: `review-87443c8fe0b24ecb` (approved, then
       superseded by the fixture rewrite below) and `review-39398fe5ffe5a963` (approved with no
       correction). See *T-05a delivered* below.
 - [ ] T-05b: **The Mercado Pago importer wiring.** The thin `pypdfium2` extractor declared per
@@ -646,8 +646,8 @@ market rate. Confirm the exact presentation against a real statement before enco
       first importer end to end, which is roughly twice the review budget and mixes two different
       kinds of knowledge — the statement's geometry and the pipeline's contract. The parser can be
       proved by the reconciliation checks alone; the wiring can be proved by the pipeline's own
-      gate matrix. **Closed 2026-09-25** — commits `b218459` (importer), `8805d26` (probe),
-      `81cdc36` (docs); native review `review-9972c11f5e343edd` approved with **no correction**.
+      gate matrix. **Closed 2026-09-25** — commits `d1be9d0` (importer), `0be07c8` (probe),
+      `3d10f5a` (docs); native review `review-9972c11f5e343edd` approved with **no correction**.
       See *T-05b delivered* below.
 - [x] T-06a: **Banco Provincia account `Extracto de cuenta`** (quarterly, dot-decimal,
       `Saldo` on every row → row-by-row self-verification). Split out of T-06 on
@@ -663,8 +663,8 @@ market rate. Confirm the exact presentation against a real statement before enco
       5, `haberes` 3, `comisión` 3, `cargos` 2, `devolución` 1, `débito` 1, `recarga` 1.
       The reference rows carry no description, so their classification is a design
       decision to document (not silently default). — depends on T-04.
-      **Delivered 2026-09-26** — commits `3daa513` (importer), `536a1a7` (probe),
-      `e96e6d5` (the counterparty-identity contract). See *T-06a delivered* below.
+      **Delivered 2026-09-26** — commits `6882df4` (importer), `1754885` (probe),
+      `4abdd2a` (the counterparty-identity contract). See *T-06a delivered* below.
 - [x] T-06b: **Banco Provincia `Liquidación Visa`** (monthly, Argentine comma-decimal,
       **trailing minus**, `C.NN/NN` installments, USD rows, merchant `*` prefixes, **no**
       running balance, sign inverted: a purchase grows the card liability). Split out of
@@ -706,7 +706,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       row's printed `dd/mm/yyyy` disagrees, or when `CreationDate` is more than 60 days after the
       close. An explicit year override covers late-downloaded history. The parser stays pure: it
       takes the anchor date (or the override) as an argument; T-07b reads `CreationDate`.
-      **T-07a delivered 2026-09-27** — commit `2e2b6ab` (`importers/bbva.py`, 43 parser tests,
+      **T-07a delivered 2026-09-27** — commit `dab8eac` (`importers/bbva.py`, 43 parser tests,
       two synthetic fixtures; 795 passed / 2 skipped, ruff clean). The parent review caught one
       bug before commit: section (A) was mandatory, which would have refused the real multi-block
       statement (it has none); it is now optional, and purchase rows without it refuse through
@@ -731,7 +731,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       gate and fixtures; **T-08b** the importer wiring; **T-08c** the acceptance probe against the
       real file. TDD strict, runner `uv run pytest`. T-08a route: delegated direct (writer
       trigger: parser, fixtures, tests).
-      **T-08a delivered 2026-09-26** — commit `a3377c1` (`importers/brubank.py`, 50 parser tests,
+      **T-08a delivered 2026-09-26** — commit `79c2f53` (`importers/brubank.py`, 50 parser tests,
       two synthetic fixtures). One pre-commit correction by the parent: the first draft skipped
       every non-date line silently; the table is now an explicit per-page region that refuses any
       unrecognized line (RED: 2 failed; GREEN: 698 passed / 2 skipped, ruff clean). Assessed medium,
@@ -743,11 +743,11 @@ market rate. Confirm the exact presentation against a real statement before enco
       if they carry money, but the refusal points at the wrong cause). Assumptions T-08c must check
       against the real file: the header/recap and period line shapes, and whether a generation
       stamp falls inside the table region.
-      **Region warning fixed 2026-09-26** in `24ce845`: the region closes only on one of the five
+      **Region warning fixed 2026-09-26** in `b5d04f7`: the region closes only on one of the five
       header labels (shared `_header_field` helper) or an anchored footer line, and a movement row
       outside any region refuses. RED: 3 failed (two refused for the wrong cause via
       `ReconciliationError`, one silently accepted); GREEN: 701 passed / 2 skipped, ruff clean.
-      Assessed medium, `under_budget` (171 lines): review pending in the slice from `3130fb3`.
+      Assessed medium, `under_budget` (171 lines): review pending in the slice from `a759905`.
       **T-08b delivered 2026-09-27** — `importers/brubank_importer.py` (wiring), the registry
       entry in `importers/__init__.py`, and `tests/test_brubank_importer.py` (28 tests, reusing
       the parser's own `minimal.txt`/`multipage.txt` fixtures). `pipeline.py`'s
@@ -767,7 +767,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       against the real file (carried over from T-08a), and confirm `Intereses pagados` never
       appears as a debit in the real file (this unit's fixed destination assumes it never does,
       mirroring only Provincia's positive-interest branch).
-      **Slice review 2026-09-27** (`3130fb3..11b7059`, covering `24ce845` and `11b7059`, 1253
+      **Slice review 2026-09-27** (`a759905..7d4837d`, covering `b5d04f7` and `7d4837d`, 1253
       lines): assessed high (`process_boundary` in the importer tests); owner granted; four-lens
       native review `review-cd6bec3fc5da0e6c` **approved**, acknowledged and burned. Non-blocking
       findings, recorded for T-08c: two WARNINGs (R3/R4, same root) — any date-prefixed line
@@ -835,7 +835,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       non-trivial files). **The real file has still not been re-run against this fix** — T-08's
       checkbox stays unchecked until `EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python
       tools/probe_brubank.py` (no `--text`) is run by the parent against the actual statement.
-      **T-08c real-file run, second pass (2026-09-27).** The re-run against `607137f` refused one step
+      **T-08c real-file run, second pass (2026-09-27).** The re-run against `63ffdd9` refused one step
       later: `line 10: a movement row has an unrecognized shape`. A masked token tally of the 28 real
       rows showed every amount cell printed as `$ <amount>` and an empty cell as a bare `-`
       (`DATE REF desc $ AMT - $ AMT` for debits, `DATE REF desc - $ AMT $ AMT` for credits, with a
@@ -847,7 +847,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       checks ok; stray-date-lines-outside-region 0 (the slice-review WARNING does not bite on this
       file); both regions close by footer; `Intereses pagados` credit 1, debit 0 (T-08b's
       assumption holds on this file).
-      **Slice review 2026-09-27** (`11b7059..eaad7cc`: the probe, the real-layout fix and the row
+      **Slice review 2026-09-27** (`7d4837d..a8bc31e`: the probe, the real-layout fix and the row
       fix, 1352 lines): assessed high (`process_boundary` in the importer tests); owner granted;
       four-lens native review `review-341ee898cd4601c0` **approved**, acknowledged and burned. **T-08
       closed.** Non-blocking follow-ups, in order of weight: (1) WARNING (R3-001/R3-002/R4, one root)
@@ -1130,7 +1130,7 @@ placeholders; the real ledger's names are the user's decision, made by hand.
 
 `paths.py` (`LedgerPaths`, every derived path re-validated individually), `ledger.py`
 (`ledger_dir` + `assert_outside_repository`), `numbers.py` and `counterparties.py` are in and
-green. Baseline re-run by the parent on 2026-09-25, working tree clean at `fec9a99`:
+green. Baseline re-run by the parent on 2026-09-25, working tree clean at `4874eb7`:
 **192 passed, 1 skipped** (the skip is the opt-in `pdfium` marker) and `ruff` clean on the whole
 source tree. The `T-04a` checkbox had been stale since before the leak-guard incident; the
 reconciliation above corrects it, and the commit identity is recorded there as evidence rather
@@ -1184,8 +1184,8 @@ to exactly one entry, else `staging-corrupt`), bootstrap rollback with a `bootst
 code, exit `141` on a closed pipe, and a `batch-exists` refusal in `extract`. A **targeted
 validator** then approved the corrected candidate on the first admissible event. Acknowledgement
 `gentle-ai.review-acknowledged/v1`, `authority: "burned"`. **Committed as four work units on the
-same bytes the validator approved:** `ab41013` (the contract), `0823343` (bootstrap), `e08f0d3`
-(the CLI), `cde0e9a` (the workflow document).
+same bytes the validator approved:** `8b8baa0` (the contract), `2dd84ba` (bootstrap), `a0c208b`
+(the CLI), `a25d043` (the workflow document).
 
 **Three advisory findings, all non-blocking, none reopening this review** — separate later work,
 never a reason to re-run review on this candidate: `R3-ledger-gate-parity-pinned`
@@ -1261,8 +1261,8 @@ and nothing calls it from `extract` yet. That disclaimer is the difference betwe
 false claim of working code.
 
 `docs/accounting-model.md` gains `Expenses:ServiciosPersonales` and `Expenses:AyudaFamiliar`, and the
-sample exercises both with one transaction each. Commits `aea5ce0` (model, sample, tests) and
-`3624fd9` (the workflow contract and the quick-path fix).
+sample exercises both with one transaction each. Commits `8c87137` (model, sample, tests) and
+`67119cb` (the workflow contract and the quick-path fix).
 
 #### The contradiction that had to be resolved, not tolerated
 
@@ -1347,7 +1347,7 @@ code**: a refusal message must not echo a raw statement line.
 structure, the frozen verb vocabulary, seven checks, and the masking rule for diagnostics.
 `tests/test_mercadopago_parser.py` (376) with three synthetic fixtures, and
 `tools/probe_mercadopago.py` (156): the only component that reads a real statement, and therefore
-the only place that decides what a human may see of one. Commit `43defe0`.
+the only place that decides what a human may see of one. Commit `adc1095`.
 
 **The masked shape dump paid for itself immediately.** The design input was the real text with every
 digit replaced and every non-template word reduced to `x`s of the same length, so the geometry
@@ -1733,8 +1733,8 @@ is the first commit rather than the last.
 
 ### T-06b delivered, part 1 (2026-09-26) — the contract and the parser
 
-Commits `9f9f49b` (this tracker: reconnaissance, the four owner decisions and the review split)
-and `7db14a1` (the parser, its synthetic fixtures and its suite). The acceptance probe ran against
+Commits `49f26a8` (this tracker: reconnaissance, the four owner decisions and the review split)
+and `8a1d2f2` (the parser, its synthetic fixtures and its suite). The acceptance probe ran against
 the **real** document with all eleven checks `ok`: 12 charges, one payment, a balance row present,
 two stamp-tax rows and three perception rows.
 
@@ -1814,8 +1814,8 @@ row takes the closing month's first day, because `Liquidacion` does not expose t
 
 ### T-06b delivered, part 2 (2026-09-26) — the wiring and the probe
 
-Commits `a3cfad2` (the wiring: `provincia_visa_importer.py`, the registry entry, its suite and the
-registration expectation the new identity moves) and `0086184` (the acceptance probe and its suite).
+Commits `c79d6c2` (the wiring: `provincia_visa_importer.py`, the registry entry, its suite and the
+registration expectation the new identity moves) and `6c19a85` (the acceptance probe and its suite).
 T-06b is complete: every unit reviewed over its own frozen candidate, every approval acknowledged,
 authority burned, tree clean at **553 passed / 2 skipped**.
 
@@ -1854,14 +1854,14 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
 
 0. **Resume here (2026-09-27 close):** T-08 (Brubank) is closed: parser, wiring and probe are
    committed, the real-file probe passes (28 movements, all seven checks ok) and the
-   `11b7059..eaad7cc` slice was reviewed (`review-341ee898cd4601c0`, approved and burned). The
-   header-scan follow-up is fixed in `09ed714` (assessed medium, `under_budget`, 196 lines): its
+   `7d4837d..a8bc31e` slice was reviewed (`review-341ee898cd4601c0`, approved and burned). The
+   header-scan follow-up is fixed in `168091b` (assessed medium, `under_budget`, 196 lines): its
    review is still pending. On 2026-09-27 lineage `review-fb189fc70aa3874f` (slice
-   `eaad7cc..d1b6a7d`) never ran: the host-relay reviewer refused the review prompt twice as a
+   `a8bc31e..ac987a1`) never ran: the host-relay reviewer refused the review prompt twice as a
    suspected prompt injection. It was abandoned (`operator_disposition`, no results captured), and
    its read-only candidate view was deleted by hand because it held copies of `sample/*.beancount`
    that the privacy pre-commit refuses. That is a transport failure, not an approval: re-review
-   from `eaad7cc` once the relay works. **Next: T-07 (BBVA).** Still open from T-08: the
+   from `a8bc31e` once the relay works. **Next: T-07 (BBVA).** Still open from T-08: the
    probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
@@ -1881,3 +1881,41 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
 5. Still open: whether Mercado Pago issues a `RESUMEN DE CUENTA EN DÓLARES`, and whether it has a
    card statement separate from the account statement. Still open from T-06a: the hyphenated CUIT
    form (`20-12345678-9`) is not matched by the redactor.
+
+### Publication preflight and history rewrite (2026-09-27)
+
+Before the branch is first pushed, it ships as **stacked PRs against `main`** (owner decision),
+cut at existing commits so no work unit is split. BBVA (T-07) stays out until T-07b/c close:
+
+| # | Slice | Ends at |
+|---|---|---|
+| 1 | Bootstrap and privacy guards (T-01) | `5e1c082` |
+| 2 | Accounting model and clearing account (T-02) | `a46fd82` |
+| 3 | Import primitives and leak guard (T-04a) | `ad1655b` |
+| 4 | Import contract and counterparty map (T-04b/c) | `2b0d10c` |
+| 5 | Mercado Pago (T-05) | `d88ad4b` |
+| 6 | Banco Provincia account (T-06a) | `c412d51` |
+| 7 | Banco Provincia Visa (T-06b) | `e04addb` |
+| 8 | MEP/CCL series (T-03) | `66292d8` |
+| 9 | Redacted leak guard (T-01d) | `4dd4487` |
+| 10 | Brubank (T-08) | `ac987a1` |
+
+Every slice exceeds the 400-line review budget; no cohesive split fits (each parser plus its tests
+is over a thousand lines), so each PR carries `size:exception`.
+
+**The pre-commit guard is not a history guard.** It scans staged content only, and the statement
+index grows as statements are added, so content that passed at commit time can fail later. Running
+`leakguard --tree --message-file` over every commit found 30 of 76 failing:
+
+- **Three utility-provider names** in one early tracker commit, where they were cited as examples of
+  statement tokens. The owner classified them as sensitive. The branch had never been pushed, so
+  that single line was rewritten with `git filter-branch --tree-filter`; exactly one tree changed,
+  `HEAD`'s tree is byte-identical, and the 63 descendant commits were renumbered (old `b304e51` is
+  now `b924388`; every citation in this tracker was remapped). The pre-rewrite branch is kept
+  locally as `backup/family-ledger-pre-rewrite` until the chain is published.
+- **Generic words** (legal boilerplate, `persona`, `ahorros`, and similar) that collide with
+  statement vocabulary: reviewed by the owner and baselined in the ledger directory.
+- **Round synthetic amounts**, which the baseline cannot hold by policy. In `HEAD` they are replaced
+  by irregular values. In older commits they stay: they were invented without ledger access and
+  reveal nothing (owner decision). One of them is the sample model's `Expenses:Supermercado` total,
+  which the guard already exempts as a derived number once `sample/` exists.
