@@ -710,6 +710,25 @@ market rate. Confirm the exact presentation against a real statement before enco
       outside any region refuses. RED: 3 failed (two refused for the wrong cause via
       `ReconciliationError`, one silently accepted); GREEN: 701 passed / 2 skipped, ruff clean.
       Assessed medium, `under_budget` (171 lines): review pending in the slice from `3130fb3`.
+      **T-08b delivered 2026-09-27** — `importers/brubank_importer.py` (wiring), the registry
+      entry in `importers/__init__.py`, and `tests/test_brubank_importer.py` (28 tests, reusing
+      the parser's own `minimal.txt`/`multipage.txt` fixtures). `pipeline.py`'s
+      `_PRESERVED_MESSAGE_TYPES` allowlist also gained Brubank's `CounterpartyClassificationError`
+      and `StatementReadError`, without which the CLI would have reduced Brubank's actionable
+      refusal to its class name only, breaking the "never defaulted" contract every other source
+      already gets. RED: 1 error (missing module, collection failure) then 4 failed on first pass
+      (two test bugs: an incomplete stub map and a mutation that broke the header block instead of
+      the running-balance chain; one real gap, now fixed by the allowlist change). GREEN: 729
+      passed / 2 skipped, `ruff` clean. Route: delegated direct (writer trigger: importer module +
+      registry + test file, 2+ non-trivial files). One design point resolved without a new
+      decision: unlike Provincia/MercadoPago, every `ORDINARY` row — credit or debit alike — goes
+      through the counterparty map, because Brubank's vocabulary has no verb to separate spending
+      from income; the map's existing `internal:`/`expense:` contract is direction-agnostic (only
+      the literal account after the marker is used), so no new prefix was needed. Two follow-ups
+      for **T-08c**: confirm the header/recap/footer line shapes and the generation-stamp placement
+      against the real file (carried over from T-08a), and confirm `Intereses pagados` never
+      appears as a debit in the real file (this unit's fixed destination assumes it never does,
+      mirroring only Provincia's positive-interest branch).
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
@@ -1655,13 +1674,13 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
 
 ## Next step
 
-0. **Resume here (2026-09-26 close):** T-03 and T-01d are closed and reviewed; T-08a (the Brubank
-   parser) is delivered and reviewed, and its region fix `24ce845` is committed but still pending
-   review in the slice from `3130fb3`. Next is **T-08b** (wiring: accounts per row, `Intereses
-   pagados` to `Income:<person>:Intereses`, `De una cuenta tuya - <bank>` to
-   `Assets:TransferenciaEnTransito`, the rest through `counterparties.tsv`), then **T-08c** (probe
-   against the real file, which must confirm the header, period and generation-stamp shapes). Open
-   follow-ups are recorded in the T-03, T-01d and T-08 entries.
+0. **Resume here (2026-09-27 close):** T-03 and T-01d are closed and reviewed; T-08a (the Brubank
+   parser, with its region fix `24ce845`) and T-08b (the wiring) are delivered; T-08a's region fix
+   and T-08b are both still pending review, in the slice from `3130fb3`. Next is **T-08c** (the
+   acceptance probe against the real file), which must confirm the header, period and
+   generation-stamp shapes (carried from T-08a) and that `Intereses pagados` never appears as a
+   debit (T-08b's fixed-destination assumption). Open follow-ups are recorded in the T-03, T-01d
+   and T-08 entries.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
    checklist — **T-03** (the MEP and CCL series) — plus the deferred T-01c/T-01d units and the

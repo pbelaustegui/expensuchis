@@ -37,6 +37,12 @@ from beangulp import identify as beangulp_identify
 from beangulp.exceptions import Error as BeangulpIdentifyError
 
 from .importers import get_importers
+from .importers.brubank_importer import (
+    CounterpartyClassificationError as _BrubankCounterpartyClassificationError,
+)
+from .importers.brubank_importer import (
+    StatementReadError as _BrubankStatementReadError,
+)
 from .importers.mercadopago_importer import (
     CounterpartyClassificationError as _MercadoPagoCounterpartyClassificationError,
 )
@@ -141,6 +147,8 @@ _PRESERVED_MESSAGE_TYPES: tuple[type[Exception], ...] = (
     _ProvinciaStatementReadError,
     _ProvinciaVisaCounterpartyClassificationError,
     _ProvinciaVisaStatementReadError,
+    _BrubankCounterpartyClassificationError,
+    _BrubankStatementReadError,
 )
 
 #: Fallback statement identifier for `importer-raised` when the statement's bytes

@@ -914,7 +914,7 @@ def test_the_card_importer_is_registered_without_a_ledger() -> None:
     # The visible identity names the product (``ProvinciaVisa``), so the pipeline's
     # refusals and the CLI's claimed-file line stay unambiguous; the counterparty
     # map's source stays ``Provincia`` for both Provincia products.
-    assert names == ["MercadoPago", "Provincia", "ProvinciaVisa"]
-    assert isinstance(importers[-1], ProvinciaVisaImporter)
+    assert names == ["MercadoPago", "Provincia", "ProvinciaVisa", "Brubank"]
+    assert isinstance(importers[2], ProvinciaVisaImporter)
     # The map source is still the bank, for both products.
     assert SOURCE == "Provincia"
