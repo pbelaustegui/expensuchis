@@ -739,6 +739,26 @@ market rate. Confirm the exact presentation against a real statement before enco
       note followed by a period-shaped run closes it). Suggestions: no test pins the
       `CounterpartyClassificationError` preservation in `pipeline.py`, and four readability nits
       in `brubank_importer.py` and the parser tests.
+      **T-08c probe written 2026-09-27** — `tools/probe_brubank.py` and
+      `tests/test_probe_brubank.py` (12 tests, reusing the parser's own `minimal.txt`/
+      `multipage.txt` fixtures plus two in-code mutations, per the T-08a convention: a stray
+      date-line on the legal-prose page, and an `Intereses pagados` row forced to a debit). RED:
+      1 error (collection failure, missing module) then 1 failed (a `Créditos`-mutation test that
+      broke the header/recap agreement instead of the declared-credits check — a test bug, fixed
+      by mutating both copies identically); GREEN: 741 passed / 2 skipped, `ruff` and
+      `ruff format` both clean. Route: delegated direct (writer trigger: probe + test file, 2+
+      non-trivial files). It prints the three facts T-08c exists to confirm, none of them
+      requiring a parser change: a shadow scan (`_scan_table_regions`) built from the parser's
+      own module-level regexes and helpers (`_layout`, `_is_table_header`, `_DATE_PREFIX_RE`,
+      `_FOOTER_LINE_RE`, `_header_field` — module-level but not in `__all__`, reused read-only,
+      mirroring the same state machine so it can never disagree with the parser) counts stray
+      date-prefixed lines outside a table region and how many regions close on the footer versus
+      a header/recap field; the public API already carries the third (`Intereses pagados` by
+      direction, from `Movement.kind`/`amount`). No gap: the existing parser API, plus these
+      module-level helpers, was enough. **The real file has not been touched** — everything above
+      ran only against the synthetic fixtures and the two in-code mutations; the real-file run is
+      still pending (`EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python tools/probe_brubank.py`,
+      no `--text`), and T-08's checkbox stays unchecked until it is.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
@@ -1685,12 +1705,14 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
 ## Next step
 
 0. **Resume here (2026-09-27 close):** T-03 and T-01d are closed and reviewed; T-08a (the Brubank
-   parser, with its region fix `24ce845`) and T-08b (the wiring) are delivered; T-08a's region fix
-   and T-08b are both still pending review, in the slice from `3130fb3`. Next is **T-08c** (the
-   acceptance probe against the real file), which must confirm the header, period and
-   generation-stamp shapes (carried from T-08a) and that `Intereses pagados` never appears as a
-   debit (T-08b's fixed-destination assumption). Open follow-ups are recorded in the T-03, T-01d
-   and T-08 entries.
+   parser, with its region fix `24ce845`) and T-08b (the wiring) are delivered and reviewed (the
+   `3130fb3..11b7059` slice, review `review-cd6bec3fc5da0e6c`, approved and burned). **T-08c's
+   probe is now written** (`tools/probe_brubank.py`, exercised only against synthetic fixtures)
+   but not yet run against the real file. Next: run it there
+   (`EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python tools/probe_brubank.py`) to confirm the
+   header/period/generation-stamp shapes (carried from T-08a) and that `Intereses pagados` never
+   appears as a debit (T-08b's fixed-destination assumption) — the probe's shape and direction
+   facts answer both. Open follow-ups are recorded in the T-03, T-01d and T-08 entries.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
    checklist — **T-03** (the MEP and CCL series) — plus the deferred T-01c/T-01d units and the
