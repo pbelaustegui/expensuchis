@@ -26,6 +26,7 @@ private file.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import importlib.util
 import os
@@ -39,6 +40,7 @@ import pytest
 from expensuchis import pipeline
 from expensuchis.importers import get_importers
 from expensuchis.importers.bbva import (
+    AccountBlock,
     ExtractoConsolidadoParseError,
     ReconciliationError,
     movement_keys,
@@ -309,6 +311,43 @@ def test_entry_meta_carries_only_the_key() -> None:
     }
     entries = build_entries(_extracto(FULL), "P1", _StubMap(mapping))
     assert all(set(entry.meta) == {"key"} for entry in entries)
+
+
+@pytest.mark.parametrize(("currency", "commodity"), [("u$s", "USD"), ("eur", "EUR")])
+def test_a_foreign_currency_block_posts_in_its_own_commodity(currency: str, commodity: str) -> None:
+    """The parser refuses a non-``$`` block that carries movement, so this
+    shape never arrives from a real statement; the importer still must not
+    book a foreign-currency movement as pesos if that rule ever relaxes."""
+    extracto = _extracto(FULL)
+    account = extracto.movements[0].account
+    foreign = dataclasses.replace(
+        extracto, blocks=(AccountBlock(kind="ca", currency=currency, account=account),)
+    )
+    mapping = {
+        "COMERCIO EJEMPLO": "expense:Expenses:Otros",
+        "KIOSCO EJEMPLO": "expense:Expenses:Otros",
+        "20000000001": "expense:Expenses:Otros",
+        "20000000002": "expense:Expenses:Otros",
+        "fulano": "expense:Expenses:Otros",
+    }
+    entries = build_entries(foreign, "P1", _StubMap(mapping))
+    assert entries
+    assert {posting.units.currency for entry in entries for posting in entry.postings} == {
+        commodity
+    }
+
+
+def test_an_unclassified_foreign_currency_row_names_its_commodity() -> None:
+    extracto = _extracto(FULL)
+    account = extracto.movements[0].account
+    foreign = dataclasses.replace(
+        extracto, blocks=(AccountBlock(kind="ca", currency="u$s", account=account),)
+    )
+    with pytest.raises(CounterpartyClassificationError) as excinfo:
+        build_entries(foreign, "P1", _StubMap({}))
+    message = str(excinfo.value)
+    assert " USD " in message
+    assert " ARS " not in message
 
 
 # ------------------------------------------------------------- account mapping

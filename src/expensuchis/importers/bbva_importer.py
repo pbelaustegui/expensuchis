@@ -152,6 +152,12 @@ _ACCOUNT_TEMPLATES: dict[tuple[str, str], str] = {
     ("ca", "eur"): "Assets:BBVA:{person}:CajaEUR",
 }
 
+#: Statement currency marker -> beancount commodity. A block's movements post
+#: in its own commodity, never a hardcoded ARS: the parser refuses a non-``$``
+#: block with movement today, and this keeps a relaxed rule from booking
+#: dollars or euros as pesos.
+_COMMODITIES: dict[str, str] = {"$": "ARS", "u$s": "USD", "eur": "EUR"}
+
 #: The card liabilities a settlement row posts to.
 VISA_ACCOUNT = "Liabilities:BBVA:{person}:Visa"
 MASTERCARD_ACCOUNT = "Liabilities:BBVA:{person}:Mastercard"
@@ -289,8 +295,10 @@ def _account_mapping_message(
     return " ".join(parts)
 
 
-def _resolve_account_routes(blocks: Sequence[AccountBlock], person: str) -> dict[str, str]:
-    """Map every block's raw account number to its ledger account, or refuse.
+def _resolve_account_routes(
+    blocks: Sequence[AccountBlock], person: str
+) -> dict[str, tuple[str, str]]:
+    """Map every block's raw account number to its (ledger account, commodity), or refuse.
 
     Raises:
         AccountMappingError: at least one block's (kind, currency) pair is
@@ -307,7 +315,10 @@ def _resolve_account_routes(blocks: Sequence[AccountBlock], person: str) -> dict
     if unknown or duplicated:
         raise AccountMappingError(_account_mapping_message(unknown, duplicated))
     return {
-        block.account: _ACCOUNT_TEMPLATES[(block.kind, block.currency)].format(person=person)
+        block.account: (
+            _ACCOUNT_TEMPLATES[(block.kind, block.currency)].format(person=person),
+            _COMMODITIES[block.currency],
+        )
         for block in blocks
     }
 
@@ -371,7 +382,7 @@ def _redact_cuit(text: str) -> str:
     return _CUIT_RUN_RE.sub("<cuit>", text)
 
 
-def _unclassified_message(unclassified: dict[str, Movement]) -> str:
+def _unclassified_message(unclassified: dict[str, tuple[Movement, str]]) -> str:
     """Build the pinned refusal message for the unique unclassified counterparties.
 
     The count is of **unique counterparties**, not movements, and the first
@@ -382,10 +393,10 @@ def _unclassified_message(unclassified: dict[str, Movement]) -> str:
     the private ledger, which already carries the real value by design.
     """
     lines = [f"{len(unclassified)} counterparties are not classified."]
-    for raw_name, movement in unclassified.items():
+    for raw_name, (movement, commodity) in unclassified.items():
         redacted_name = _redact_cuit(raw_name)
         lines.append(
-            f"  {movement.date.isoformat()}  {movement.amount:,.2f} ARS  "
+            f"  {movement.date.isoformat()}  {movement.amount:,.2f} {commodity}  "
             f'"{_redact_cuit(movement.concept)}"  "{redacted_name}"'
         )
         if redacted_name != raw_name:
@@ -402,12 +413,17 @@ def _unclassified_message(unclassified: dict[str, Movement]) -> str:
 
 
 def _entry(
-    movement: Movement, cash_account: str, counterpart: str, key: str, payee: str
+    movement: Movement,
+    cash_account: str,
+    commodity: str,
+    counterpart: str,
+    key: str,
+    payee: str,
 ) -> data.Transaction:
     meta = {"key": key}
     postings = [
-        data.Posting(cash_account, data.Amount(movement.amount, "ARS"), None, None, None, None),
-        data.Posting(counterpart, data.Amount(-movement.amount, "ARS"), None, None, None, None),
+        data.Posting(cash_account, data.Amount(movement.amount, commodity), None, None, None, None),
+        data.Posting(counterpart, data.Amount(-movement.amount, commodity), None, None, None, None),
     ]
     return data.Transaction(
         meta,
@@ -443,9 +459,9 @@ def build_entries(
     account_for = _resolve_account_routes(extracto.blocks, person)
     keys = movement_keys(extracto.movements)
     entries: list[data.Transaction] = []
-    unclassified: dict[str, Movement] = {}
+    unclassified: dict[str, tuple[Movement, str]] = {}
     for movement, key in zip(extracto.movements, keys):
-        cash_account = account_for[movement.account]
+        cash_account, commodity = account_for[movement.account]
         kind = movement.kind
         if kind in (
             MovementKind.DEBIT_CARD_PURCHASE,
@@ -460,14 +476,14 @@ def build_entries(
                 )
             destination = counterparty_map.resolve(SOURCE, raw_name)
             if destination is None:
-                unclassified.setdefault(raw_name, movement)
+                unclassified.setdefault(raw_name, (movement, commodity))
                 continue
             counterpart = _destination_account(destination)
             payee = raw_name
         else:
             counterpart = _fixed_destination(kind, person)
             payee = SOURCE
-        entries.append(_entry(movement, cash_account, counterpart, key, payee))
+        entries.append(_entry(movement, cash_account, commodity, counterpart, key, payee))
 
     if unclassified:
         raise CounterpartyClassificationError(_unclassified_message(unclassified))
@@ -570,8 +586,7 @@ class BBVAImporter(Importer):
                 anchor = self._read_creation_date(filepath)
             except Exception as exc:  # noqa: BLE001 - the class is the only safe detail
                 raise StatementReadError(
-                    f"cannot read the statement's CreationDate metadata: "
-                    f"{type(exc).__name__}"
+                    f"cannot read the statement's CreationDate metadata: {type(exc).__name__}"
                 ) from None
             if anchor is None:
                 raise StatementReadError(
