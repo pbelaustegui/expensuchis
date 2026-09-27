@@ -678,7 +678,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       (`DÉBITO`/`CRÉDITO`/`SALDO`) and the Visa and Mastercard statements (**`PESOS` and
       `DÓLARES` columns**, `C.NN/NN` installments). Requires adding `pypdfium2` as a declared
       runtime dependency; `pypdf` cannot read these files. — depends on T-04.
-- [ ] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
+- [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
       `De una cuenta tuya - <banco>`, which is internal, and its categorization is name matching
@@ -808,7 +808,18 @@ market rate. Confirm the exact presentation against a real statement before enco
       passes** — 4 pages, 28 movements (24 ordinary, 1 interest, 3 internal transfers), all seven
       checks ok; stray-date-lines-outside-region 0 (the slice-review WARNING does not bite on this
       file); both regions close by footer; `Intereses pagados` credit 1, debit 0 (T-08b's
-      assumption holds on this file). T-08 stays unchecked only until the slice review closes.
+      assumption holds on this file).
+      **Slice review 2026-09-27** (`11b7059..eaad7cc`: the probe, the real-layout fix and the row
+      fix, 1352 lines): assessed high (`process_boundary` in the importer tests); owner granted;
+      four-lens native review `review-341ee898cd4601c0` **approved**, acknowledged and burned. **T-08
+      closed.** Non-blocking follow-ups, in order of weight: (1) WARNING (R3-001/R3-002/R4, one root)
+      — the header-field regex is unanchored, without word boundaries, and `_header_block` searches
+      every line including movement rows, so a debit row whose description ends in a known label
+      followed by `$ <amount>` would be counted as a header field and refuse a valid statement;
+      restrict the header scan to lines outside table regions and bound the label. (2) Probe
+      `_refusal_cause`'s USD bucket matches any message containing `USD`. (3) Stale "recap" wording
+      in the probe docstring and two test comments, a stale `_HEADER_FIELD_RE` test docstring, and
+      the currency markers duplicated between `_CURRENCY_ARS/_USD` and the regex.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
@@ -1766,9 +1777,9 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    above for the full RED/GREEN record. **Next: re-run the probe against the real file**
    (`EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python tools/probe_brubank.py`, no `--text`) to
    confirm this fix against the actual statement and that `Intereses pagados` never appears as a
-   debit (T-08b's fixed-destination assumption) — **done: the second real-file run passes** (see
-   the T-08 entry). Next: the native review of the `11b7059..HEAD` slice, then check T-08. Open
-   follow-ups are recorded in the T-03, T-01d and T-08 entries.
+   debit (T-08b's fixed-destination assumption) — done, and the slice review closed T-08 (see the
+   T-08 entry). **Next:** the T-08 header-scan follow-up (restrict the header search to lines outside
+   table regions), then T-07 (BBVA). Open follow-ups are recorded in the T-03, T-01d and T-08 entries.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
    checklist — **T-03** (the MEP and CCL series) — plus the deferred T-01c/T-01d units and the
