@@ -759,6 +759,44 @@ market rate. Confirm the exact presentation against a real statement before enco
       ran only against the synthetic fixtures and the two in-code mutations; the real-file run is
       still pending (`EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python tools/probe_brubank.py`,
       no `--text`), and T-08's checkbox stays unchecked until it is.
+      **T-08c real-file probe run correction (2026-09-27).** The real-file run (4 pages) refused:
+      `ResumenParseError: the 'opening' header field appears 0 time(s); expected exactly 2 (the
+      opening block and the last page's recap)` (region facts: stray-date-lines-outside-region 0,
+      regions-closed-by-footer 2). A masked shape dump of the real `read_pdf` (pypdfium2) text
+      showed the T-08a layout assumption was wrong on two points: (1) pypdfium2 merges the header's
+      two visual columns into **one line per field** — an unrelated left-column fragment (account
+      type, currency name, or `CUIT <digits>`, itself carrying digits) precedes the label, and
+      `Imp. Trans. Financieras`/`Saldo Final` share one line — so the old label-then-amount regex,
+      anchored to the whole line, never matched; (2) the page-3 block T-08a/T-08b read as a
+      **recap of the ARS header is not a recap at all** — it is a **second, USD-denominated
+      account** (`Moneda Dólar (USD)`, amounts prefixed `U$S`), with no movement table of its own;
+      in the real file its credits, debits and tax are all zero and opening equals closing. **Owner
+      decision (2026-09-27):** the ARS header block is required exactly once (no more "opening +
+      recap" pair); a USD account block is optional, and accepted only when quiescent (credits,
+      debits and tax all zero, opening equal to closing) — it emits nothing to the ledger; any USD
+      movement refuses the import with a masked message until a real file with USD movements exists
+      to model it. Fixed in `importers/brubank.py` (`_header_fields`/`_header_block` rewritten:
+      merged-line, currency-tagged (`$`/`U$S`) field matching, searched anywhere in the folded line
+      rather than anchored, so a digit-bearing left-column prefix such as CUIT never hides a field;
+      the region-close check in `_parse_movements` now shares the same helper) and mirrored in
+      `tools/probe_brubank.py` (`_scan_table_regions`'s region-close check and `_refusal_cause`'s
+      bucket list). Fixtures `tests/fixtures/brubank/minimal.txt` (single ARS block, no recap) and
+      `multipage.txt` (merged ARS header on page 1, table across pages 1–2, quiescent USD block on
+      page 3, legal prose on page 4) rewritten to the real layout, all values synthetic. RED: 70
+      failed / 30 passed (fixtures and tests updated to the new expected shape before touching the
+      parser); GREEN: 748 passed / 2 skipped (net +7 tests: merged-line recognition including the
+      CUIT-digit prefix and the two-fields-in-one-line case, quiescent-USD accepted, USD refused on
+      non-zero credits/debits/tax or opening≠closing, USD block missing-a-field and duplicated-field
+      refusals, ARS duplicated-field refusal replacing the old, now-disproven recap-agreement test),
+      `ruff check` clean. Files: `src/expensuchis/importers/brubank.py`,
+      `tools/probe_brubank.py`, `tests/fixtures/brubank/{minimal,multipage}.txt`,
+      `tests/test_brubank_parser.py`, `tests/test_brubank_importer.py` (one inline duplicated-header
+      fixture text, now single-copy), `tests/test_probe_brubank.py` (shape-count assertions updated:
+      the USD block never opens a table region, so `regions-closed-by-header` is now 0 for both
+      fixtures). Route: delegated direct (writer trigger: parser + probe + 5 test/fixture files, 2+
+      non-trivial files). **The real file has still not been re-run against this fix** — T-08's
+      checkbox stays unchecked until `EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python
+      tools/probe_brubank.py` (no `--text`) is run by the parent against the actual statement.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
@@ -1704,15 +1742,21 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
 
 ## Next step
 
-0. **Resume here (2026-09-27 close):** T-03 and T-01d are closed and reviewed; T-08a (the Brubank
-   parser, with its region fix `24ce845`) and T-08b (the wiring) are delivered and reviewed (the
-   `3130fb3..11b7059` slice, review `review-cd6bec3fc5da0e6c`, approved and burned). **T-08c's
-   probe is now written** (`tools/probe_brubank.py`, exercised only against synthetic fixtures)
-   but not yet run against the real file. Next: run it there
-   (`EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python tools/probe_brubank.py`) to confirm the
-   header/period/generation-stamp shapes (carried from T-08a) and that `Intereses pagados` never
-   appears as a debit (T-08b's fixed-destination assumption) — the probe's shape and direction
-   facts answer both. Open follow-ups are recorded in the T-03, T-01d and T-08 entries.
+0. **Resume here (2026-09-27, real-file probe correction):** T-03 and T-01d are closed and
+   reviewed; T-08a (the Brubank parser, with its region fix `24ce845`) and T-08b (the wiring) are
+   delivered and reviewed (the `3130fb3..11b7059` slice, review `review-cd6bec3fc5da0e6c`, approved
+   and burned). The T-08c probe was run against the real file (4 pages) and **refused**: the
+   T-08a/T-08b layout assumption (a header that repeats verbatim as an end-of-document recap) was
+   wrong — pypdfium2 merges the header's two visual columns into one line per field, and the
+   page-3 block is not a recap but a second, quiescent USD account. Both are now fixed (owner
+   decision 2026-09-27: ARS header exactly once, an optional USD block accepted only when
+   quiescent), with rewritten fixtures and 748 passed / 2 skipped, `ruff` clean — see the T-08 entry
+   above for the full RED/GREEN record. **Next: re-run the probe against the real file**
+   (`EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python tools/probe_brubank.py`, no `--text`) to
+   confirm this fix against the actual statement and that `Intereses pagados` never appears as a
+   debit (T-08b's fixed-destination assumption) — the probe's checks, shape and direction facts
+   answer both. T-08's checkbox stays unchecked until that real-file run passes. Open follow-ups
+   are recorded in the T-03, T-01d and T-08 entries.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
    checklist — **T-03** (the MEP and CCL series) — plus the deferred T-01c/T-01d units and the

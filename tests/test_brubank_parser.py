@@ -5,13 +5,18 @@ The fixtures under ``tests/fixtures/brubank/`` are synthetic: invented names
 references (the leading digits of pi, e, the golden ratio, sqrt(2) and sqrt(5),
 chosen precisely because they are obviously fictional and never resemble a real
 Brubank reference) and invented amounts, laid out in the geometry the
-2026-09-26 reconnaissance mapped (masked, shape-only, against one real file):
-a header block (``Saldo Inicial``, ``Saldo Final``, ``Créditos``, ``Débitos``,
-``Imp. Trans. Financieras``) that repeats verbatim as a recap at the end of the
-last movement page, a movement table
+2026-09-27 real-file probe run mapped (masked, shape-only, against one real
+file; see ``odd/tasks/family-ledger.md``, "T-08 reconnaissance" and its
+2026-09-27 correction): an ARS header block (``Saldo Inicial``, ``Saldo
+Final``, ``Créditos``, ``Débitos``, ``Imp. Trans. Financieras``) that appears
+exactly once — pypdfium2 merges the statement's two header columns into one
+line per field, so ``multipage.txt`` also carries an unrelated left-column
+fragment (including one with digits, the CUIT number) before a label, and one
+line merging ``Imp. Trans. Financieras``/``Saldo Final`` — a movement table
 (``Fecha | #Ref | Descripción | Débito | Crédito | Saldo``) with no wrapped rows
-and no minus sign anywhere, and a footer period line
-(``dd Mon yyyy al dd Mon yyyy``).
+and no minus sign anywhere, an optional quiescent USD account block (same five
+fields, ``U$S`` instead of ``$``, no movement table of its own), and a footer
+period line (``dd Mon yyyy al dd Mon yyyy``).
 
 Coverage is two-sided, as in the Provincia and card-liquidación suites. Half of
 it proves the parser is a *reader*: the good fixtures reconcile, the two special
@@ -100,7 +105,7 @@ def test_every_check_reports_ok_on_a_good_fixture(name: str, text: str) -> None:
     assert all(check.ok for check in checks), [c for c in checks if not c.ok]
 
 
-def test_the_header_and_its_recap_are_reconciled_into_one_value() -> None:
+def test_the_ars_header_block_is_parsed_into_one_value() -> None:
     resumen = parse_resumen(MULTIPAGE)
     assert resumen.opening == Decimal("48732.15")
     assert resumen.closing == Decimal("59516.68")
@@ -131,7 +136,7 @@ def test_an_ordinary_row_carries_every_field_and_its_kind() -> None:
         amount=Decimal("9876.54"),
         balance=Decimal("58608.69"),
         page=1,
-        line=8,
+        line=7,
         kind=MovementKind.ORDINARY,
         transfer_bank="",
     )
@@ -160,7 +165,7 @@ def test_an_interest_row_is_tagged_and_is_a_credit() -> None:
 
 def test_movements_carry_their_page() -> None:
     pages = [movement.page for movement in parse_resumen(MULTIPAGE).movements]
-    assert pages == [1, 1, 2, 2, 3]
+    assert pages == [1, 1, 2, 2, 2]
 
 
 def test_the_legal_prose_trailing_page_is_never_parsed_as_a_movement() -> None:
@@ -229,13 +234,6 @@ def _replace_once(text: str, old: str, new: str) -> str:
     return text.replace(old, new, 1)
 
 
-def _replace_both(text: str, old: str, new: str) -> str:
-    assert text.count(old) == 2, (
-        f"expected exactly two occurrences of {old!r}, found {text.count(old)}"
-    )
-    return text.replace(old, new)
-
-
 def mutate_interior_balance(text: str) -> str:
     """Shift one interior running saldo by one centavo: only the chain can see this."""
     return _replace_once(text, "1.234,56 - 57.374,13", "1.234,56 - 57.374,14")
@@ -256,24 +254,24 @@ def mutate_duplicate_ref(text: str) -> str:
     return _replace_once(text, "2236067977", "1414213562")
 
 
-def mutate_closing_recap(text: str) -> str:
-    """Move the declared closing balance (both the header and its recap) by one centavo."""
-    return _replace_both(text, "Saldo Final $ 59.516,68", "Saldo Final $ 59.516,69")
+def mutate_closing_balance(text: str) -> str:
+    """Move the declared closing balance by one centavo."""
+    return _replace_once(text, "Saldo Final $ 59.516,68", "Saldo Final $ 59.516,69")
 
 
-def mutate_credits_recap(text: str) -> str:
-    """Move the declared credits total (both copies) by one centavo.
+def mutate_credits_total(text: str) -> str:
+    """Move the declared credits total by one centavo.
 
     This is a deliberate double fault: the header's own balance equation reads
     the same (now-moved) figure, so ``header-balance-equation`` breaks too. See
     ``test_a_moved_credits_total_breaks_two_checks``.
     """
-    return _replace_both(text, "Créditos $ 12.697,99", "Créditos $ 12.698,99")
+    return _replace_once(text, "Créditos $ 12.697,99", "Créditos $ 12.698,99")
 
 
-def mutate_debits_recap(text: str) -> str:
-    """Move the declared debits total (both copies) by one centavo. Also a double fault."""
-    return _replace_both(text, "Débitos $ 1.913,46", "Débitos $ 1.913,47")
+def mutate_debits_total(text: str) -> str:
+    """Move the declared debits total by one centavo. Also a double fault."""
+    return _replace_once(text, "Débitos $ 1.913,46", "Débitos $ 1.913,47")
 
 
 MUTATIONS: list[tuple[str, Callable[[str], str]]] = [
@@ -281,9 +279,9 @@ MUTATIONS: list[tuple[str, Callable[[str], str]]] = [
     ("ascending-dates", mutate_out_of_order_date),
     ("dates-in-period", mutate_date_outside_period),
     ("refs-unique", mutate_duplicate_ref),
-    ("header-balance-equation", mutate_closing_recap),
-    ("declared-credits", mutate_credits_recap),
-    ("declared-debits", mutate_debits_recap),
+    ("header-balance-equation", mutate_closing_balance),
+    ("declared-credits", mutate_credits_total),
+    ("declared-debits", mutate_debits_total),
 ]
 
 
@@ -338,9 +336,9 @@ def test_a_duplicate_ref_fails_only_uniqueness() -> None:
     assert failed == {"refs-unique"}
 
 
-def test_a_moved_closing_recap_fails_only_the_header_equation() -> None:
+def test_a_moved_closing_balance_fails_only_the_header_equation() -> None:
     with pytest.raises(ReconciliationError) as excinfo:
-        parse_resumen(mutate_closing_recap(MULTIPAGE))
+        parse_resumen(mutate_closing_balance(MULTIPAGE))
     failed = {check.name for check in excinfo.value.failures}
     assert failed == {"header-balance-equation"}
 
@@ -354,14 +352,14 @@ def test_a_moved_credits_total_breaks_two_checks() -> None:
     of keeping both checks.
     """
     with pytest.raises(ReconciliationError) as excinfo:
-        parse_resumen(mutate_credits_recap(MULTIPAGE))
+        parse_resumen(mutate_credits_total(MULTIPAGE))
     failed = {check.name for check in excinfo.value.failures}
     assert failed == {"declared-credits", "header-balance-equation"}
 
 
 def test_a_moved_debits_total_breaks_two_checks() -> None:
     with pytest.raises(ReconciliationError) as excinfo:
-        parse_resumen(mutate_debits_recap(MULTIPAGE))
+        parse_resumen(mutate_debits_total(MULTIPAGE))
     failed = {check.name for check in excinfo.value.failures}
     assert failed == {"declared-debits", "header-balance-equation"}
 
@@ -460,20 +458,21 @@ def test_an_extra_line_between_two_movement_rows_refuses() -> None:
     assert "page 1" in message
 
 
-def test_an_unrecognized_line_before_the_recap_refuses() -> None:
-    """A line between the last row and the recap block is still inside the region."""
+def test_an_unrecognized_line_before_the_footer_refuses() -> None:
+    """A line between the last row and the footer is still inside the region."""
     text = MULTIPAGE.replace(
-        "20-09-26 2236067977 Electrica Ejemplo 678,90 - 59.516,68\nSaldo Inicial $ 48.732,15",
+        "20-09-26 2236067977 Electrica Ejemplo 678,90 - 59.516,68\n"
+        "Período 31 Ago 2026 al 20 Sep 2026",
         "20-09-26 2236067977 Electrica Ejemplo 678,90 - 59.516,68\n"
         "nota inesperada\n"
-        "Saldo Inicial $ 48.732,15",
+        "Período 31 Ago 2026 al 20 Sep 2026",
     )
     with pytest.raises(ResumenParseError) as excinfo:
         parse_resumen(text)
     message = str(excinfo.value)
     assert "nota inesperada" not in message
     assert "unrecognized" in message
-    assert "page 3" in message
+    assert "page 2" in message
 
 
 def test_a_malformed_date_inside_the_table_refuses_at_parse_time_not_reconciliation() -> None:
@@ -516,36 +515,23 @@ def test_a_missing_header_field_refuses() -> None:
     assert "0 time" in str(excinfo.value)
 
 
-def test_a_header_field_missing_its_recap_refuses() -> None:
-    lines = MINIMAL.split("\n")
-    # Drop only the *second* occurrence of the Créditos line (the recap).
-    seen = 0
-    kept = []
-    for line in lines:
-        if line.startswith("Créditos"):
-            seen += 1
-            if seen == 2:
-                continue
-        kept.append(line)
-    with pytest.raises(ResumenParseError) as excinfo:
-        parse_resumen("\n".join(kept))
-    assert "declared_credits" in str(excinfo.value)
-    assert "1 time" in str(excinfo.value)
+def test_a_duplicated_ars_header_field_refuses() -> None:
+    """Exactly one ARS occurrence is required per field; a document that carries a
 
-
-def test_a_recap_that_disagrees_with_its_opening_block_refuses() -> None:
+    second one — even an identical copy — is not a shape this module has
+    confirmed (unlike the old, disproven recap assumption): refusing is safer
+    than picking one.
+    """
     lines = MINIMAL.split("\n")
-    seen = 0
-    for index, line in enumerate(lines):
-        if line.startswith("Créditos"):
-            seen += 1
-            if seen == 2:
-                lines[index] = "Créditos $ 3.500,01"
-    text = "\n".join(lines)
+    index = next(i for i, line in enumerate(lines) if line.startswith("Créditos"))
+    lines.insert(index + 1, lines[index])
     with pytest.raises(ResumenParseError) as excinfo:
-        parse_resumen(text)
-    assert "recap" in str(excinfo.value)
-    assert "3.500,00" not in str(excinfo.value) and "3.500,01" not in str(excinfo.value)
+        parse_resumen("\n".join(lines))
+    message = str(excinfo.value)
+    assert "declared_credits" in message
+    assert "2 time" in message
+    assert "ARS" in message
+    assert "3.500,00" not in message
 
 
 def test_a_missing_period_line_refuses() -> None:
@@ -559,9 +545,9 @@ def test_an_unknown_label_and_amount_line_inside_the_table_refuses() -> None:
     """``_HEADER_FIELD_RE`` matches any label-then-amount shape, not only the five
 
     known header labels. A stray line like a bank commission note ending in an
-    amount must not be mistaken for a header/recap field closing the region —
-    it must refuse, not silently close the region and drop the rows that
-    follow on the same page.
+    amount must not be mistaken for a header field closing the region — it
+    must refuse, not silently close the region and drop the rows that follow
+    on the same page.
     """
     text = MULTIPAGE.replace(
         "05-09-26 1618033988 De una cuenta tuya - BBVA - 2.500,00 59.874,13\n"
@@ -601,16 +587,18 @@ def test_a_period_shaped_substring_among_other_text_inside_the_table_refuses() -
     assert "page 2" in message
 
 
-def test_a_movement_row_after_the_recap_footer_on_the_same_page_refuses() -> None:
+def test_a_movement_row_after_the_footer_on_the_same_page_refuses() -> None:
     """A movement row must never be silently ignored, even outside a closed region.
 
-    Once the table region on the last page closes at the footer/period line,
-    a further movement-row-shaped line on that same page is not furniture: it
+    Once the table region on a page closes at the footer/period line, a
+    further movement-row-shaped line on that same page is not furniture: it
     must refuse rather than being dropped.
     """
     text = MULTIPAGE.replace(
-        "Imp. Trans. Financieras $ 99,00\nPeríodo 31 Ago 2026 al 20 Sep 2026\n",
-        "Imp. Trans. Financieras $ 99,00\nPeríodo 31 Ago 2026 al 20 Sep 2026\n"
+        "20-09-26 2236067977 Electrica Ejemplo 678,90 - 59.516,68\n"
+        "Período 31 Ago 2026 al 20 Sep 2026\n",
+        "20-09-26 2236067977 Electrica Ejemplo 678,90 - 59.516,68\n"
+        "Período 31 Ago 2026 al 20 Sep 2026\n"
         "25-09-26 9999999999 Otra Persona 1,00 - 1,00\n",
     )
     with pytest.raises(ResumenParseError) as excinfo:
@@ -618,7 +606,7 @@ def test_a_movement_row_after_the_recap_footer_on_the_same_page_refuses() -> Non
     message = str(excinfo.value)
     assert "Otra Persona" not in message
     assert "outside" in message
-    assert "page 3" in message
+    assert "page 2" in message
 
 
 def test_disagreeing_period_lines_refuse_without_echoing_the_dates() -> None:
@@ -633,3 +621,134 @@ def test_disagreeing_period_lines_refuse_without_echoing_the_dates() -> None:
         parse_resumen(text)
     assert "does not agree" in str(excinfo.value)
     assert "2026" not in str(excinfo.value)
+
+
+# --------------------------------------------------------------- merged two-column headers
+
+
+_MERGED_HEADER_TEXT = (
+    "Resumen de Movimientos\n"
+    "Tipo Caja de Ahorro Saldo Inicial $ 1.000,00\n"
+    "Moneda Pesos (ARS) Créditos $ 500,00\n"
+    "CUIT 20333333334 Débitos $ 200,00\n"
+    "Imp. Trans. Financieras $ 10,00 Saldo Final $ 1.300,00\n"
+    "Fecha #Ref Descripción Débito Crédito Saldo\n"
+    "01-01-26 1111111111 Persona Ejemplo - 500,00 1.500,00\n"
+    "02-01-26 2222222222 Aguas Ejemplo 200,00 - 1.300,00\n"
+    "Período 01 Ene 2026 al 02 Ene 2026\n"
+)
+
+
+def test_merged_two_column_header_lines_are_parsed() -> None:
+    """pypdfium2 merges the statement's two header columns into one line per field.
+
+    Every field here is preceded by an unrelated left-column fragment — one of
+    them (``CUIT 20333333334``) itself carrying digits — and the last line
+    merges two fields (``Imp. Trans. Financieras``/``Saldo Final``) separated
+    only by the second field's own currency marker and amount. None of that
+    should prevent recognizing every field correctly.
+    """
+    resumen = parse_resumen(_MERGED_HEADER_TEXT)
+    assert resumen.opening == Decimal("1000.00")
+    assert resumen.closing == Decimal("1300.00")
+    assert resumen.declared_credits == Decimal("500.00")
+    assert resumen.declared_debits == Decimal("200.00")
+    assert resumen.financial_transactions_tax == Decimal("10.00")
+    assert len(resumen.movements) == 2
+
+
+# ------------------------------------------------------------------- the USD account block
+
+
+_ARS_WITH_QUIESCENT_USD = (
+    "Resumen de Movimientos\n"
+    "Saldo Inicial $ 100,00\n"
+    "Saldo Final $ 100,00\n"
+    "Créditos $ 0,00\n"
+    "Débitos $ 0,00\n"
+    "Imp. Trans. Financieras $ 0,00\n"
+    "Fecha #Ref Descripción Débito Crédito Saldo\n"
+    "Período 01 Ene 2026 al 02 Ene 2026\n"
+    "Saldo Inicial U$S 50,00\n"
+    "Créditos U$S 0,00\n"
+    "Débitos U$S 0,00\n"
+    "Imp. Trans. Financieras U$S 0,00 Saldo Final U$S 50,00\n"
+    "Período 01 Ene 2026 al 02 Ene 2026\n"
+)
+
+
+def test_a_quiescent_usd_block_is_accepted_and_emits_no_movement() -> None:
+    """The owner's 2026-09-27 decision: a quiescent USD account is accepted, silently.
+
+    Credits, debits and tax are all zero and opening equals closing — the
+    account never moved this period — so it contributes nothing to the ledger
+    and never appears in :attr:`Resumen.movements`.
+    """
+    resumen = parse_resumen(_ARS_WITH_QUIESCENT_USD)
+    assert resumen.movements == ()
+    assert resumen.opening == Decimal("100.00")
+    assert resumen.closing == Decimal("100.00")
+
+
+def test_a_usd_block_with_nonzero_credits_refuses() -> None:
+    text = _ARS_WITH_QUIESCENT_USD.replace("Créditos U$S 0,00", "Créditos U$S 5,00")
+    with pytest.raises(ResumenParseError) as excinfo:
+        parse_resumen(text)
+    message = str(excinfo.value)
+    assert "USD" in message
+    assert "5,00" not in message
+
+
+def test_a_usd_block_with_nonzero_debits_refuses() -> None:
+    text = _ARS_WITH_QUIESCENT_USD.replace("Débitos U$S 0,00", "Débitos U$S 5,00")
+    with pytest.raises(ResumenParseError) as excinfo:
+        parse_resumen(text)
+    message = str(excinfo.value)
+    assert "USD" in message
+    assert "5,00" not in message
+
+
+def test_a_usd_block_with_nonzero_tax_refuses() -> None:
+    text = _ARS_WITH_QUIESCENT_USD.replace(
+        "Imp. Trans. Financieras U$S 0,00 Saldo Final U$S 50,00",
+        "Imp. Trans. Financieras U$S 5,00 Saldo Final U$S 50,00",
+    )
+    with pytest.raises(ResumenParseError) as excinfo:
+        parse_resumen(text)
+    message = str(excinfo.value)
+    assert "USD" in message
+    assert "5,00" not in message
+
+
+def test_a_usd_block_with_opening_not_equal_to_closing_refuses() -> None:
+    text = _ARS_WITH_QUIESCENT_USD.replace("Saldo Inicial U$S 50,00", "Saldo Inicial U$S 60,00")
+    with pytest.raises(ResumenParseError) as excinfo:
+        parse_resumen(text)
+    message = str(excinfo.value)
+    assert "USD" in message
+    assert "60,00" not in message
+
+
+def test_a_usd_block_missing_a_field_refuses() -> None:
+    """Once any USD field is present, all five are required — no partial block."""
+    text = "\n".join(
+        line for line in _ARS_WITH_QUIESCENT_USD.split("\n") if line != "Créditos U$S 0,00"
+    )
+    with pytest.raises(ResumenParseError) as excinfo:
+        parse_resumen(text)
+    message = str(excinfo.value)
+    assert "declared_credits" in message
+    assert "USD" in message
+    assert "0 time" in message
+
+
+def test_a_duplicated_usd_header_field_refuses() -> None:
+    lines = _ARS_WITH_QUIESCENT_USD.split("\n")
+    index = next(i for i, line in enumerate(lines) if line == "Créditos U$S 0,00")
+    lines.insert(index + 1, lines[index])
+    with pytest.raises(ResumenParseError) as excinfo:
+        parse_resumen("\n".join(lines))
+    message = str(excinfo.value)
+    assert "declared_credits" in message
+    assert "USD" in message
+    assert "2 time" in message

@@ -12,10 +12,12 @@ Half of this file proves the probe reports the ordinary aggregates and never lea
 statement content (mirroring ``test_probe_provincia_visa.py``); the other half is
 T-08c's own job: it pins the two shape facts the parser itself never exposes (whether
 a date-prefixed line ever falls outside a table region, and how many regions closed by
-the footer versus by a header/recap field) and the ``Intereses pagados`` direction
-count, all derived without changing the parser (``tools/probe_brubank.py`` reuses the
-parser's own module-level regexes and helpers for the shape scan; see that module for
-why touching ``brubank.py`` was out of scope for this unit).
+the footer versus by a header field) and the ``Intereses pagados`` direction count, all
+derived without changing the parser's public surface (``tools/probe_brubank.py`` reuses
+``brubank``'s own module-level regexes and helpers for the shape scan). The
+``multipage.txt`` fixture also carries the real file's merged two-column header lines
+and its optional quiescent USD account block (see ``odd/tasks/family-ledger.md``, the
+2026-09-27 correction to the T-08 reconnaissance).
 """
 
 from __future__ import annotations
@@ -137,8 +139,12 @@ def test_the_minimal_fixture_counts_its_two_movements(capsys) -> None:
 # ------------------------------------------------------------- T-08c shape facts (1)+(2)
 
 
-def test_the_multipage_fixture_reports_two_footer_closes_and_one_header_close(capsys) -> None:
-    """Fact (2): page 1 and 2 close on the footer's period line, page 3 on the recap."""
+def test_the_multipage_fixture_reports_two_footer_closes_and_no_header_close(capsys) -> None:
+    """Fact (2): the table pages (1 and 2) both close on the footer's period line.
+
+    The USD account block on page 3 never opens a table region of its own (it
+    has no movement rows), so no region ever closes on a header field.
+    """
     path = FIXTURES / "multipage.txt"
 
     assert probe.main(["--text", str(path)]) == 0
@@ -146,20 +152,20 @@ def test_the_multipage_fixture_reports_two_footer_closes_and_one_header_close(ca
     combined = "".join(capsys.readouterr())
     assert "shape stray-date-lines-outside-region: 0" in combined
     assert "shape regions-closed-by-footer: 2" in combined
-    assert "shape regions-closed-by-header: 1" in combined
+    assert "shape regions-closed-by-header: 0" in combined
     assert "shape regions-closed-by-end-of-page: 0" in combined
 
 
-def test_the_minimal_fixture_closes_its_only_region_by_header(capsys) -> None:
-    """Fact (2): the minimal fixture has no footer-only page; its region closes on the recap."""
+def test_the_minimal_fixture_closes_its_only_region_by_footer(capsys) -> None:
+    """Fact (2): the minimal fixture's single table region closes on the footer's period line."""
     path = FIXTURES / "minimal.txt"
 
     assert probe.main(["--text", str(path)]) == 0
 
     combined = "".join(capsys.readouterr())
     assert "shape stray-date-lines-outside-region: 0" in combined
-    assert "shape regions-closed-by-footer: 0" in combined
-    assert "shape regions-closed-by-header: 1" in combined
+    assert "shape regions-closed-by-footer: 1" in combined
+    assert "shape regions-closed-by-header: 0" in combined
     assert "shape regions-closed-by-end-of-page: 0" in combined
 
 

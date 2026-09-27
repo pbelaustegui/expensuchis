@@ -12,24 +12,39 @@ check fails; it never returns a partially trusted result. There is no
 What the document looks like
 ----------------------------
 
-Reconnaissance against one real file (masked, shape-only; see
-``odd/tasks/family-ledger.md``, "T-08 reconnaissance") found: a header block
-naming ``Saldo Inicial``, ``Saldo Final``, ``Créditos``, ``Débitos`` and an
-``Imp. Trans. Financieras`` total, opening the document; a movement table whose
-columns are **``Fecha | #Ref | Descripción | Débito | Crédito | Saldo``**; and a
+A real-file probe run (masked, shape-only; see ``odd/tasks/family-ledger.md``,
+"T-08 reconnaissance" and its 2026-09-27 correction) found: an ARS header
+block naming ``Saldo Inicial``, ``Saldo Final``, ``Créditos``, ``Débitos`` and
+an ``Imp. Trans. Financieras`` total, opening the document; a movement table
+whose columns are **``Fecha | #Ref | Descripción | Débito | Crédito | Saldo``**;
+an optional second, USD-denominated account block with the same five fields
+(prefixed ``U$S`` instead of ``$``) and no movement table of its own; and a
 footer period line, ``dd Mon yyyy al dd Mon yyyy`` with Spanish month
-abbreviations. The exact surrounding text of the header and footer lines (labels
-on their own line versus inline with a leading currency symbol, extra metadata
-lines such as ``CUIT`` or ``CBU``) was not confirmed by the reconnaissance, which
-mapped column geometry, not line text; this module's header/footer/period
-line shapes are therefore this unit's best-supported reading of the recon, not a
-transcription of the file, and are recorded as a residual risk.
+abbreviations.
 
-The header block is not a one-time preamble: it **repeats verbatim as a recap at
-the end of the last movement page** (reconnaissance: "the balance header block
-... opens page 1 and repeats as a recap at the end of page 3"). Both copies are
-parsed, and a mismatch between them refuses the document — picking one over the
-other would silently trust an inconsistent statement.
+The text extractor (pypdfium2) merges the statement's two visual header
+columns into a single line per field: an unrelated left-column fragment (the
+account type, the currency name, or ``CUIT <digits>`` — itself carrying
+digits) precedes the label, and the last line of a block merges two fields,
+``Imp. Trans. Financieras`` and ``Saldo Final``, separated only by the second
+field's own currency marker and amount. :data:`_HEADER_FIELD_RE` is searched
+anywhere in the line, not anchored to its start, and requires a currency
+marker (``$`` or ``U$S``) directly before the amount, so neither the left
+column's text nor its digits are ever mistaken for part of a field.
+
+**The header block is not a repeating recap.** An earlier reading of this
+file's geometry (T-08a/T-08b) assumed the header opened the document and
+repeated verbatim as a recap at the end of the last movement page; a probe run
+against the real file disproved that (the "opening" field appeared zero
+times, because the real header lines never stood alone the way the earlier
+fixtures assumed). The real shape is: the ARS header block appears **exactly
+once**, and what looked like a second block on a later page is not a recap at
+all — it is a **second, USD-denominated account** (owner decision,
+2026-09-27): it is accepted only when quiescent (its declared credits,
+debits and tax are all zero and its opening equals its closing — the account
+never moved this period) and contributes nothing to the ledger; a USD block
+carrying any movement refuses the import rather than guessing at a shape no
+real file has confirmed yet.
 
 A movement is always exactly one line — the real file carries no wrapped
 descriptions (reconnaissance: "no wrapped descriptions in this file") — of the
@@ -46,20 +61,21 @@ T-06b (see ``odd/tasks/family-ledger.md``): a document line the parser cannot
 place is a movement it failed to understand, never furniture by default.
 
 The table header (``Fecha #Ref Descripción Débito Crédito Saldo``) and the
-footer's period line repeat on every page. Each page has a **table region**: it
-starts right after a table-header line and ends at the recap block's first
-field, the footer/period line, or the end of the page, whichever comes first.
-Inside that region every line must be exactly one of a movement row, a repeated
-table header, the footer/period line, or blank — never silently skipped just
-because it does not start with a date. The region closes only on a line that
-*is* one of those closing shapes, not merely a line that resembles one: a
-header/recap field line closes it only when its label is one of the five known
-labels, and the footer/period line closes it only when the whole line matches
-that shape, not a period-shaped substring inside a longer line. Only *outside*
-the region (the header block that opens the document, and a page that never
-carries a table header at all, such as the trailing legal prose) does an
-unrecognized line stay unremarkable furniture — except a movement-row-shaped
-line, which is never furniture and always refuses. See :func:`_parse_movements`.
+footer's period line repeat on every page that carries a table. Each page has a
+**table region**: it starts right after a table-header line and ends at a
+header field line, the footer/period line, or the end of the page,
+whichever comes first. Inside that region every line must be exactly one of a
+movement row, a repeated table header, the footer/period line, or blank —
+never silently skipped just because it does not start with a date. The region
+closes only on a line that *is* one of those closing shapes, not merely a line
+that resembles one: a header field line closes it only when it carries at
+least one of the five known labels (see :func:`_header_fields`), and the
+footer/period line closes it only when the whole line matches that shape, not
+a period-shaped substring inside a longer line. Only *outside* the region (the
+ARS/USD header blocks, and a page that never carries a table header at all,
+such as the trailing legal prose) does an unrecognized line stay unremarkable
+furniture — except a movement-row-shaped line, which is never furniture and
+always refuses. See :func:`_parse_movements`.
 
 Special rows
 ------------
@@ -193,11 +209,6 @@ _ROW_RE = re.compile(
     rf"(?P<credito>-|{_ARS_AMOUNT})\s+"
     rf"(?P<saldo>{_ARS_AMOUNT})\s*$"
 )
-#: A header/recap field line: a label (any run of non-digit characters) then an
-#: optional ``$`` and an Argentine amount. Matched structurally so the label's
-#: exact accenting or a stray ``$`` never matters; :data:`_HEADER_LABELS` maps
-#: the folded label to the field it names.
-_HEADER_FIELD_RE = re.compile(rf"^(?P<label>[^\d\n]+?)\s*\$?\s*(?P<amount>{_ARS_AMOUNT})\s*$")
 _HEADER_LABELS: dict[str, str] = {
     "saldo inicial": "opening",
     "saldo final": "closing",
@@ -205,6 +216,30 @@ _HEADER_LABELS: dict[str, str] = {
     "debitos": "declared_debits",
     "imp. trans. financieras": "financial_transactions_tax",
 }
+#: The currency marker preceding a header field's amount: ``$`` for the ARS
+#: account, ``u$s`` (folded from ``U$S``) for the USD account.
+_CURRENCY_ARS = "$"
+_CURRENCY_USD = "u$s"
+
+#: The five known labels, longest first purely defensively (none is currently a
+#: prefix of another, but this keeps the alternation safe if one is ever added).
+_HEADER_LABEL_ALTERNATION = "|".join(
+    re.escape(label) for label in sorted(_HEADER_LABELS, key=len, reverse=True)
+)
+#: A header field, matched *anywhere* inside a folded line rather than
+#: anchored to its start or requiring the whole line: the real file's text
+#: extractor (pypdfium2) merges its two visual header columns into one line,
+#: so a field's label is routinely preceded by an unrelated left-column
+#: fragment — which may itself carry digits, such as ``CUIT <digits>``.
+#: Requiring the currency marker (``$``/``u$s``) directly before the amount
+#: means that fragment's own text or digits are never mistaken for part of a
+#: field. Two fields can share one line (``Imp. Trans. Financieras $ X Saldo
+#: Final $ Y``); :func:`_header_fields` uses ``finditer`` to find every
+#: non-overlapping match. :data:`_HEADER_LABELS` maps the matched label to the
+#: field it names.
+_HEADER_FIELD_RE = re.compile(
+    rf"(?P<label>{_HEADER_LABEL_ALTERNATION})\s*(?P<currency>\$|u\$s)\s*(?P<amount>{_ARS_AMOUNT})"
+)
 #: The footer's period line: ``dd Mon yyyy al dd Mon yyyy``. Not anchored on its
 #: own, so :func:`_period` may find it sitting inside a longer footer line
 #: (e.g. a ``Período: ...`` label) without this module needing to know the
@@ -327,10 +362,12 @@ class Resumen:
     """A fully reconciled statement. Only :func:`parse_resumen` builds one.
 
     ``opening``, ``closing``, ``declared_credits`` and ``declared_debits`` are
-    the header's own figures (confirmed equal to their end-of-document recap by
-    :func:`parse_resumen`). ``financial_transactions_tax`` is the header's
-    ``Imp. Trans. Financieras`` total, kept as data: it is never posted (owner
-    decision) and never appears as a movement.
+    the ARS header block's own figures. ``financial_transactions_tax`` is the
+    header's ``Imp. Trans. Financieras`` total, kept as data: it is never
+    posted (owner decision) and never appears as a movement. A quiescent USD
+    account block, when present, is validated by :func:`parse_resumen` but
+    carries no data here: it never moved this period, so there is nothing to
+    keep.
     """
 
     period_start: dt.date
@@ -347,14 +384,15 @@ class Resumen:
 class ResumenParseError(ValueError):
     """The text is not a parsable ``Resumen de Movimientos``.
 
-    Structural failure, distinct from :class:`ReconciliationError`: a header or
-    recap field is missing, duplicated beyond the expected opening+recap pair,
-    or the two copies disagree; the period line is missing or its repeated
-    copies disagree; a movement row has no recognized shape, carries a value in
-    both or neither of Débito/Crédito, carries an amount this module cannot
-    parse (including one that would need a minus sign), or its description is
-    the forbidden header-only ``Imp. Trans. Financieras`` total. The message
-    never echoes statement text.
+    Structural failure, distinct from :class:`ReconciliationError`: an ARS
+    header field is missing or appears more than once; an optional USD account
+    block is present but incomplete or duplicated, or carries any movement
+    (owner decision, 2026-09-27: only a quiescent USD block is accepted); the
+    period line is missing or its repeated copies disagree; a movement row has
+    no recognized shape, carries a value in both or neither of Débito/Crédito,
+    carries an amount this module cannot parse (including one that would need
+    a minus sign), or its description is the forbidden header-only ``Imp.
+    Trans. Financieras`` total. The message never echoes statement text.
     """
 
 
@@ -414,61 +452,77 @@ def _amount(raw: str, line: int, field: str) -> Decimal:
         ) from None
 
 
-def _header_field(stripped: str) -> tuple[str, str] | None:
-    """Return ``(field, raw_amount)`` when ``stripped`` is a known header/recap line.
+def _header_fields(stripped: str) -> list[tuple[str, str, str]]:
+    """Return every ``(field, currency, raw_amount)`` triple found in ``stripped``.
 
-    Matched structurally by :data:`_HEADER_FIELD_RE` first (any non-digit label
-    then an amount), then the folded label is checked against
-    :data:`_HEADER_LABELS`: a coincidental label-shaped line — any run of
-    non-digit text immediately followed by an amount, which a stray note or a
-    wrapped fragment inside the movement table can also look like — never
-    counts as a header field unless it names one of the five known ones.
-    Shared by :func:`_header_block` and :func:`_parse_movements`'s table-region
-    close, so the two can never disagree on what a header field is.
+    ``currency`` is :data:`_CURRENCY_ARS` or :data:`_CURRENCY_USD`. Matched
+    structurally by :data:`_HEADER_FIELD_RE`, searched anywhere in the folded
+    line (not anchored to its start) so an unrelated left-column fragment
+    before the label — including one that carries digits, such as the CUIT
+    number — never hides a field, and never matched unless the label is one
+    of the five known ones with a currency marker directly before its amount.
+    A line carries zero, one, or two fields (the real file's last header line
+    merges ``Imp. Trans. Financieras`` and ``Saldo Final``). Shared by
+    :func:`_header_block` and :func:`_parse_movements`'s table-region close,
+    so the two can never disagree on what a header field line is.
     """
-    match = _HEADER_FIELD_RE.match(stripped)
-    if match is None:
-        return None
-    label = fold(match.group("label")).strip()
-    field = _HEADER_LABELS.get(label)
-    if field is None:
-        return None
-    return field, match.group("amount")
+    folded = fold(stripped)
+    return [
+        (_HEADER_LABELS[match.group("label")], match.group("currency"), match.group("amount"))
+        for match in _HEADER_FIELD_RE.finditer(folded)
+    ]
 
 
 def _header_block(rows: list[tuple[int, int, str]]) -> dict[str, Decimal]:
-    """Return the five header fields, requiring each to appear exactly twice and agree.
+    """Return the five ARS header fields, validating an optional USD account block.
 
-    The header block opens the document and repeats verbatim as a recap at the
-    end of the last movement page (reconnaissance). Both copies are required —
-    not "at least one" — because a document that dropped its recap, or grew a
-    third copy, is not a shape this module has confirmed; refusing is safer
-    than picking a copy.
+    The ARS block is required to appear **exactly once** per field — not "at
+    least once", so a document that drops a field or grows a second copy is
+    refused rather than guessed at. A second, USD-denominated account block is
+    optional; when any of its five fields is present, all five must be (also
+    exactly once each), and the owner's 2026-09-27 decision applies: it is
+    accepted only when quiescent (declared credits, debits and tax all zero,
+    and opening equal to closing — the account never moved this period) and
+    contributes nothing to the returned mapping; a USD block carrying any
+    movement is refused, because no real file has confirmed that shape yet.
     """
-    occurrences: dict[str, list[tuple[int, Decimal]]] = {
-        field: [] for field in _HEADER_LABELS.values()
-    }
+    ars: dict[str, list[tuple[int, Decimal]]] = {field: [] for field in _HEADER_LABELS.values()}
+    usd: dict[str, list[tuple[int, Decimal]]] = {field: [] for field in _HEADER_LABELS.values()}
     for _page, line, raw in rows:
-        header_field = _header_field(raw.strip())
-        if header_field is None:
-            continue
-        field, amount_raw = header_field
-        occurrences[field].append((line, _amount(amount_raw, line, field)))
+        for field, currency, amount_raw in _header_fields(raw.strip()):
+            bucket = ars if currency == _CURRENCY_ARS else usd
+            bucket[field].append((line, _amount(amount_raw, line, field)))
 
     result: dict[str, Decimal] = {}
-    for field, entries in occurrences.items():
-        if len(entries) != 2:
+    for field, entries in ars.items():
+        if len(entries) != 1:
             raise ResumenParseError(
-                f"the '{field}' header field appears {len(entries)} time(s); expected exactly 2 "
-                f"(the opening block and the last page's recap)"
+                f"the '{field}' header field appears {len(entries)} time(s) in the ARS "
+                f"account block; expected exactly 1"
             )
-        (opening_line, opening_value), (recap_line, recap_value) = entries
-        if opening_value != recap_value:
+        result[field] = entries[0][1]
+
+    if any(usd.values()):
+        for field, entries in usd.items():
+            if len(entries) != 1:
+                raise ResumenParseError(
+                    f"the '{field}' header field appears {len(entries)} time(s) in the USD "
+                    f"account block; expected exactly 1 once any USD field is present"
+                )
+        usd_values = {field: entries[0][1] for field, entries in usd.items()}
+        quiescent = (
+            usd_values["declared_credits"] == 0
+            and usd_values["declared_debits"] == 0
+            and usd_values["financial_transactions_tax"] == 0
+            and usd_values["opening"] == usd_values["closing"]
+        )
+        if not quiescent:
             raise ResumenParseError(
-                f"the '{field}' header field's recap (line {recap_line}) does not equal its "
-                f"opening block value (line {opening_line}); refusing rather than picking one"
+                "the USD account block carries movement (non-zero credits, debits, tax, or "
+                "opening differs from closing); refusing rather than guessing at a shape no "
+                "real file has confirmed yet"
             )
-        result[field] = opening_value
+
     return result
 
 
@@ -581,28 +635,27 @@ def _movement_from_line(raw: str, page: int, line: int) -> Movement:
 def _parse_movements(rows: list[tuple[int, int, str]]) -> list[Movement]:
     """Parse every movement row, refusing any unrecognized line inside the table region.
 
-    A page's **table region** starts right after a table-header line and ends at
-    the recap block's first field, the footer/period line, or the end of the
+    A page's **table region** starts right after a table-header line and ends
+    at a header field line, the footer/period line, or the end of the
     page — whichever comes first. The region closes **only** on a line that is
     structurally one of those two things, checked the same way the rest of the
-    module checks them: a header/recap field line closes it only when its
-    folded label is exactly one of the five known labels
-    (:func:`_header_field`, shared with :func:`_header_block` so the two can
-    never disagree), and the footer/period line closes it only when the *whole*
-    line matches the footer shape (:data:`_FOOTER_LINE_RE`, ``fullmatch``, not
-    a substring search). A line that merely resembles either shape — an
-    unknown label followed by an amount, or a line that happens to carry a
-    period-shaped substring among other text — is not a close: it falls
-    through to the final, unconditional refusal below, exactly like any other
-    unrecognized line.
+    module checks them: a header field line closes it only when it carries at
+    least one of the five known labels (:func:`_header_fields`, shared with
+    :func:`_header_block` so the two can never disagree), and the footer/period
+    line closes it only when the *whole* line matches the footer shape
+    (:data:`_FOOTER_LINE_RE`, ``fullmatch``, not a substring search). A line
+    that merely resembles either shape — an unknown label followed by an
+    amount, or a line that happens to carry a period-shaped substring among
+    other text — is not a close: it falls through to the final, unconditional
+    refusal below, exactly like any other unrecognized line.
 
-    Outside the region (the header block that opens the document, and a page
-    such as the trailing legal prose that never carries a table header at all)
-    a line that matches nothing stays unremarkable furniture, as it always
-    has — *except* a movement-row-shaped line (a date prefix), which is never
-    furniture: a movement row that appears once the region has closed (a stray
-    row after the recap, for instance) refuses rather than being silently
-    dropped, the same way a movement row inside a now-broken region would.
+    Outside the region (the ARS/USD header blocks, and a page such as the
+    trailing legal prose that never carries a table header at all) a line that
+    matches nothing stays unremarkable furniture, as it always has — *except*
+    a movement-row-shaped line (a date prefix), which is never furniture: a
+    movement row that appears once the region has closed (a stray row after
+    the footer, for instance) refuses rather than being silently dropped, the
+    same way a movement row inside a now-broken region would.
 
     Inside the region, every line must be exactly one of: a movement row, a
     repeated table header, the footer/period line, or blank. Anything else —
@@ -643,7 +696,7 @@ def _parse_movements(rows: list[tuple[int, int, str]]) -> list[Movement]:
         if _FOOTER_LINE_RE.fullmatch(stripped) is not None:
             in_region = False
             continue
-        if _header_field(stripped) is not None:
+        if _header_fields(stripped):
             in_region = False
             continue
 
@@ -766,13 +819,13 @@ def parse_resumen(text: str) -> Resumen:
     """Parse and reconcile one extracted statement.
 
     Raises:
-        ResumenParseError: the text is not a ``Resumen de Movimientos``: a
-            header/recap field is missing, duplicated beyond the opening+recap
-            pair, or the two copies disagree; the period line is missing or its
-            copies disagree; or a movement row has no recognized shape, carries
-            a value in both or neither of Débito/Crédito, carries a malformed
-            amount, or is the forbidden ``Imp. Trans. Financieras`` row. The
-            message is masked.
+        ResumenParseError: the text is not a ``Resumen de Movimientos``: an ARS
+            header field is missing or appears more than once; an optional USD
+            account block is incomplete, duplicated, or carries any movement;
+            the period line is missing or its copies disagree; or a movement
+            row has no recognized shape, carries a value in both or neither of
+            Débito/Crédito, carries a malformed amount, or is the forbidden
+            ``Imp. Trans. Financieras`` row. The message is masked.
         ReconciliationError: the document parsed but a check failed. The error
             carries every check and the failed subset; nothing partial is
             returned.

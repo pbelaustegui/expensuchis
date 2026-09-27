@@ -25,11 +25,11 @@ statement's filename. It prints:
 * the two **shape facts** T-08c exists to confirm against the real file, which
   :func:`~expensuchis.importers.brubank.parse_resumen` itself never exposes: whether
   any date-prefixed line ever falls outside a movement table region, and how many
-  regions closed on the footer/period line versus on a header/recap field
+  regions closed on the footer/period line versus on a header field
   (:func:`_scan_table_regions`). Both are derived from the extracted text using the
   parser's own module-level regexes and helpers, without changing the parser: reusing
   ``brubank._layout``, ``brubank._is_table_header``, ``brubank._DATE_PREFIX_RE``,
-  ``brubank._FOOTER_LINE_RE`` and ``brubank._header_field`` means this scan can never
+  ``brubank._FOOTER_LINE_RE`` and ``brubank._header_fields`` means this scan can never
   disagree with the parser about what a table header, a footer line or a header field
   looks like — it is a read-only shadow of the same state machine, not a second
   opinion.
@@ -100,7 +100,9 @@ def _scan_table_regions(text: str) -> _RegionShape:
     that makes the real parser raise ``ResumenParseError`` with "an unrecognized line
     appears inside the movement table") is deliberately not classified further here:
     that refusal is :func:`~expensuchis.importers.brubank.parse_resumen`'s job, not
-    this scan's.
+    this scan's. A header field line here is any line carrying at least one of the
+    five known ARS/USD fields (``brubank._header_fields``); this scan does not care
+    which currency it belongs to, only that it closes the region.
     """
     stray_date_lines = 0
     closed_by_footer = 0
@@ -133,7 +135,7 @@ def _scan_table_regions(text: str) -> _RegionShape:
             closed_by_footer += 1
             in_region = False
             continue
-        if brubank._header_field(stripped) is not None:
+        if brubank._header_fields(stripped):
             closed_by_header += 1
             in_region = False
             continue
@@ -168,6 +170,12 @@ def _refusal_cause(exc: brubank.ResumenParseError) -> str:
         return "header-only total appeared as a movement row"
     if "unrecognized line appears inside the movement table" in message:
         return "unrecognized line inside a table region"
+    if "USD account block carries movement" in message:
+        return "USD account block carries unmodeled movement"
+    if "USD account block" in message or "USD" in message:
+        return "USD account block is incomplete or duplicated"
+    if "ARS account block" in message:
+        return "ARS header field missing or duplicated"
     return "other structural mismatch"
 
 

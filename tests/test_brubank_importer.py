@@ -456,9 +456,9 @@ def test_a_reconciliation_failure_propagates_untouched() -> None:
     """A parser reconciliation failure is already refused; extract must not mask it.
 
     Mutates the first movement's running balance only — a value that appears
-    nowhere in the header block — so the header's own equation and its recap
-    stay consistent and the failure is genuinely the running-balance-chain
-    check, not a header parse failure.
+    nowhere in the header block — so the header itself stays internally
+    consistent and the failure is genuinely the running-balance-chain check,
+    not a header parse failure.
     """
     mutated = MINIMAL.replace("13.500,00", "13.500,01", 1)
     importer = BrubankImporter(text_reader=lambda _path: mutated)
@@ -595,11 +595,6 @@ def test_pipeline_extract_stages_keys_and_a_second_run_reports_them_skipped(
         "Imp. Trans. Financieras $ 0,00\n"
         "Fecha #Ref Descripción Débito Crédito Saldo\n"
         "10-09-26 1414213562 Intereses pagados - 321,45 321,45\n"
-        "Saldo Inicial $ 0,00\n"
-        "Saldo Final $ 321,45\n"
-        "Créditos $ 321,45\n"
-        "Débitos $ 0,00\n"
-        "Imp. Trans. Financieras $ 0,00\n"
         "Período 10 Sep 2026 al 10 Sep 2026\n"
     )
     _write_ledger(ledger)
