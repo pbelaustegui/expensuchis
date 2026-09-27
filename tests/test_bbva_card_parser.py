@@ -109,6 +109,7 @@ def _flatten(rows: tuple[PositionedRow, ...]) -> str:
 
 VISA_FULL = _load("visa_full.txt")
 MASTERCARD_FULL = _load("mastercard_full.txt")
+VISA_MERGED_TOKENS = _load("visa_merged_tokens.txt")
 
 #: Each failing fixture breaks exactly one reconciliation check.
 FAILING_FIXTURES: list[tuple[str, str]] = [
@@ -187,6 +188,34 @@ def test_mastercard_reconciles_with_every_check_ok() -> None:
     assert all(check.ok for check in liquidacion.checks), [
         check for check in liquidacion.checks if not check.ok
     ]
+
+
+def test_visa_with_merged_tokens_reconciles_identically_to_the_split_one() -> None:
+    """The real pypdfium2 extraction glues words together with no space
+    whenever the gap is too small (T-07d, second real-file correction):
+    CIERRE ACTUAL, SU PAGO EN PESOS/USD, TOTAL CONSUMOS DE <name>, and every
+    charge row's label+rate+base become single tokens, while SALDO/ANTERIOR,
+    Impuestos/cargos/e/intereses and Consumos/<name> stay split -- both
+    shapes appear in this one fixture, and parsing must agree with the fully
+    split fixture's own figures either way."""
+    merged = parse_card_liquidacion(VISA_MERGED_TOKENS)
+    split = parse_card_liquidacion(VISA_FULL)
+    assert [check.name for check in merged.checks] == list(CHECK_NAMES)
+    assert all(check.ok for check in merged.checks), [
+        check for check in merged.checks if not check.ok
+    ]
+    assert merged.close_date == split.close_date
+    assert merged.opening_ars == split.opening_ars
+    assert merged.opening_usd == split.opening_usd
+    assert merged.detail_saldo_actual_ars == split.detail_saldo_actual_ars
+    assert merged.detail_saldo_actual_usd == split.detail_saldo_actual_usd
+    assert len(merged.movements) == len(split.movements)
+    merged_kinds = {m.kind for m in merged.movements}
+    assert merged_kinds == {MovementKind.PURCHASE, MovementKind.PAYMENT, MovementKind.CHARGE}
+    merged_charge_classes = {
+        m.charge_class for m in merged.movements if m.kind is MovementKind.CHARGE
+    }
+    assert merged_charge_classes == {ChargeClass.PERCEPCION, ChargeClass.IVA}
 
 
 def test_visa_brand_and_close_date_and_balances() -> None:

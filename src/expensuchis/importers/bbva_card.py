@@ -156,6 +156,35 @@ section's movement sum, per currency, must equal its own printed
 **detail** ``SALDO ACTUAL``; and the **summary** box's ``SALDO ACTUAL`` must
 agree with the **detail**'s.
 
+Token merging
+-------------
+
+A real ``pypdfium2`` extraction does not reliably split words apart:
+whenever the true gap between two words is under the tokenizer's own
+tolerance (or there is genuinely no space character at all -- a name run
+straight into the next label, a rate and a base run straight into their
+label), the whole run becomes **one token**, and the very same label may
+appear merged on one row and split on another within the same document
+(T-07d, second real-file correction -- ``CIERREACTUAL``, ``SUPAGOENPESOS``
+and ``TOTALCONSUMOSDE<name>`` are each observed as a single token, while
+``SALDO``/``ANTERIOR`` and ``Impuestos,``/``cargos``/``e``/``intereses``
+stay split). Every label and charge shape in this module is therefore
+matched on the row's **despaced** text (:func:`_row_despaced`,
+:func:`_row_starts_with`) -- fold, then drop every space -- never on exact
+token equality or a fixed token count: a label match never depends on how
+many tokens it happened to span. The one place that still trusts an exact,
+isolated token is the detail header's ``PESOS``/``DÓLARES`` marker used to
+read the column edges (:func:`_find_column_edges`) -- every real occurrence
+observed keeps that token clean, so reading its own ``x1`` stays exact
+rather than an approximation from a merged run.
+
+Because a label's token boundary is no longer trusted, a payment row's
+grammar is slightly more permissive than before: anything between the
+matched ``SU PAGO EN *`` label and the row's trailing amount is silently
+absorbed rather than raising on "unexpected extra fields" (no such content
+has been observed, and the amount is still unambiguously the row's last
+token either way).
+
 Masking
 -------
 
@@ -252,11 +281,12 @@ _AMOUNT_TOKEN_RE = re.compile(r"^-?\$?\d{1,3}(?:\.\d{3})*,\d{2}-?$")
 _COMPROBANTE_RE = re.compile(r"^\d{6}$")
 _INSTALLMENT_RE = re.compile(r"^C\.(\d{1,2})/(\d{1,2})$", re.IGNORECASE)
 _DATE_RE = re.compile(r"^(?P<day>\d{1,2})-(?P<month>[^\s\d-]+)-(?P<year>\d{2})$")
-_DB_RG_RE = re.compile(r"^db\.rg\s+\d+")
-_IVA_RG_RE = re.compile(r"^iva rg\s+\d+")
-
-_PAYMENT_PESOS_PREFIX = ("su", "pago", "en", "pesos")
-_PAYMENT_USD_PREFIX = ("su", "pago", "en", "usd")
+#: Charge-shape prefixes, matched on **despaced** text (see ``_row_despaced``):
+#: a real ``pypdfium2`` extraction glues a charge row's label, rate and base
+#: into one token with no space at all (T-07d second real-file correction),
+#: so these never require a ``\s+`` between the label and its digits.
+_DB_RG_RE = re.compile(r"^db\.rg\d")
+_IVA_RG_RE = re.compile(r"^ivarg\d")
 
 _MONTHS: dict[str, int] = {
     "enero": 1,
@@ -299,17 +329,24 @@ def is_bbva_card_liquidacion(text: str) -> bool:
 
     Structural, over folded lines: a ``CIERRE ACTUAL`` line, a ``SALDO
     ANTERIOR`` line, and a detail header line carrying both ``FECHA`` and
-    ``PESOS`` as separate tokens. Every one of the three is required: BBVA's
-    own ``Extracto consolidado`` (:func:`expensuchis.importers.bbva.is_bbva_extracto`)
+    ``PESOS``. Every one of the three is required: BBVA's own ``Extracto
+    consolidado`` (:func:`expensuchis.importers.bbva.is_bbva_extracto`)
     carries ``SALDO ANTERIOR`` too but never ``CIERRE ACTUAL`` or a
     ``PESOS``-carrying header, and Banco Provincia's card liquidación
     (:mod:`expensuchis.importers.provincia_visa`) carries ``CIERRE`` but
-    never ``CIERRE ACTUAL`` as two adjacent words.
+    never ``CIERRE ACTUAL`` as adjacent words.
+
+    The ``CIERRE ACTUAL``/``SALDO ANTERIOR`` checks are **whitespace-
+    insensitive** (space stripped from the folded line before comparing):
+    ``pypdfium2``'s flat-text extraction, like its positioned rows, can glue
+    two words together with no space between them whenever the real
+    character gap is too small (T-07d, second real-file correction), so a
+    literal ``"cierre actual"`` substring is not reliable.
     """
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = normalized.split("\n")
-    has_cierre_actual = any("cierre actual" in fold(line) for line in lines)
-    has_saldo_anterior = any("saldo anterior" in fold(line) for line in lines)
+    has_cierre_actual = any("cierreactual" in fold(line).replace(" ", "") for line in lines)
+    has_saldo_anterior = any("saldoanterior" in fold(line).replace(" ", "") for line in lines)
     has_detail_header = any({"fecha", "pesos"} <= set(fold(line).split()) for line in lines)
     return has_cierre_actual and has_saldo_anterior and has_detail_header
 
@@ -448,15 +485,29 @@ def _parse_amount(raw: str, page: int, row: int, field: str) -> Decimal:
         ) from None
 
 
-def _folded_tokens(row: PositionedRow) -> list[str]:
-    return [fold(token.text) for token in row.tokens]
+def _row_despaced(row: PositionedRow) -> str:
+    """Return the row's tokens, folded and concatenated with **no separator**.
+
+    The real ``pypdfium2`` extraction sometimes glues two or more words into
+    one token (no space character, and a gap under the token-splitting
+    tolerance) and sometimes keeps them apart -- both were observed for
+    different labels in the same document (T-07d, second real-file
+    correction). Matching a label against this despaced concatenation, never
+    against exact per-token equality, is what makes the match tolerant to
+    either shape.
+    """
+    return "".join(fold(token.text) for token in row.tokens)
 
 
-def _folded_prefix(row: PositionedRow, length: int) -> tuple[str, ...]:
-    folded = _folded_tokens(row)
-    if len(folded) < length:
-        return ()
-    return tuple(folded[:length])
+def _row_starts_with(row: PositionedRow, label: str) -> bool:
+    """Whether the row's despaced text starts with ``label`` (itself despaced, folded).
+
+    Deliberately a prefix check, not equality: a label may run straight into
+    trailing content within the very same token with no separator at all --
+    ``TOTAL CONSUMOS DE <name>`` is one token in the real file, name included
+    -- so this never requires knowing where the label "ends".
+    """
+    return _row_despaced(row).startswith(fold(label).replace(" ", ""))
 
 
 def _parse_date_token(text: str, page: int, row: int) -> dt.date:
@@ -480,12 +531,21 @@ def _parse_date_token(text: str, page: int, row: int) -> dt.date:
 
 
 def _is_detail_header(row: PositionedRow) -> bool:
-    folded = set(_folded_tokens(row))
-    return "fecha" in folded and "pesos" in folded
+    """Whether ``row`` carries both a ``FECHA`` and a ``PESOS`` marker.
+
+    A substring check on the despaced row, not a per-token lookup: ``NRO.``
+    is sometimes glued to the word right after it (``NRO.aaaaa`` one token),
+    so a set-of-exact-tokens check would miss it if ``FECHA``/``PESOS`` ever
+    merged the same way. Neither is observed to merge in the real files, but
+    the check costs nothing extra and stays consistent with every other
+    marker in this module.
+    """
+    despaced = _row_despaced(row)
+    return "fecha" in despaced and "pesos" in despaced
 
 
 def _is_saldo_anterior(row: PositionedRow) -> bool:
-    return _folded_prefix(row, 2) == ("saldo", "anterior")
+    return _row_starts_with(row, "SALDO ANTERIOR")
 
 
 def _is_saldo_actual(row: PositionedRow) -> bool:
@@ -499,23 +559,22 @@ def _is_saldo_actual(row: PositionedRow) -> bool:
     amount on the row is what tells the two shapes apart without needing to
     know which one comes first.
     """
-    return _folded_prefix(row, 2) == ("saldo", "actual") and any(
+    return _row_starts_with(row, "SALDO ACTUAL") and any(
         _is_amount_token(token.text) for token in row.tokens
     )
 
 
 def _is_cierre_actual(row: PositionedRow) -> bool:
-    return _folded_prefix(row, 2) == ("cierre", "actual")
+    return _row_starts_with(row, "CIERRE ACTUAL")
 
 
 def _is_charges_heading(row: PositionedRow) -> bool:
-    return any("impuestos" in folded for folded in _folded_tokens(row))
+    return "impuestos" in _row_despaced(row)
 
 
 def _is_consumos_title(row: PositionedRow) -> bool:
     """A ``Consumos <name>`` section title -- furniture; the name is never read."""
-    folded = _folded_tokens(row)
-    return bool(folded) and folded[0] == "consumos"
+    return _row_starts_with(row, "Consumos")
 
 
 def _parse_cierre_actual_date(rows: Sequence[PositionedRow], cierre_index: int) -> dt.date:
@@ -547,22 +606,33 @@ def _find_row(
 
 
 def _find_brand(rows: Sequence[PositionedRow]) -> CardBrand:
+    """Find the ``VISA``/``MASTERCARD`` marker, as a despaced substring of any row.
+
+    A substring check, not exact token equality: the brand word can be glued
+    to neighbouring text on its own title row (never observed to merge in
+    the real files, but the letterhead row was not part of the reconnaissance
+    dump either, so this stays defensive rather than assuming it cannot).
+    """
     for row in rows:
-        for folded in _folded_tokens(row):
-            if folded == "mastercard":
-                return CardBrand.MASTERCARD
-            if folded == "visa":
-                return CardBrand.VISA
+        despaced = _row_despaced(row)
+        if "mastercard" in despaced:
+            return CardBrand.MASTERCARD
+        if "visa" in despaced:
+            return CardBrand.VISA
     raise CardLiquidacionParseError("no VISA/MASTERCARD brand marker was found")
 
 
 def _find_column_edges(rows: Sequence[PositionedRow]) -> tuple[float, float | None]:
     """Derive the PESOS/DÓLARES right edges from the document's own detail header.
 
-    The **first** row carrying both ``FECHA`` and ``PESOS`` tokens is always
-    a detail header (the summary box's own ``Pesos Dólares`` mini header
-    carries no ``FECHA`` token, so it never matches -- see the module
-    docstring, "Summary-box values sit elsewhere").
+    The **first** row carrying both a ``FECHA`` and a ``PESOS`` marker is
+    always a detail header (the summary box's own ``Pesos Dólares`` mini
+    header carries no ``FECHA`` marker, so it never matches -- see the
+    module docstring, "Summary-box values sit elsewhere"). The edge itself
+    still comes from an **exact** token equal to ``PESOS``/``DÓLARES``: every
+    real occurrence observed keeps that token clean and unmerged, unlike the
+    labels this module matches by despaced prefix, so reading its own ``x1``
+    directly is safe and gives the true edge rather than an approximation.
     """
     for row in rows:
         if not _is_detail_header(row):
@@ -711,6 +781,15 @@ def _parse_payment_row(
     parser never reaches -- see the module docstring). The leading date is
     tolerated but not required, so an undated payment row -- if ever
     observed -- still parses, with ``when=None``.
+
+    The label is matched on the despaced text of everything after the
+    optional date (``SUPAGOEN``, common to both currencies -- the real
+    document glues the whole label into one token, per the second real-file
+    correction). The **currency** still comes from the trailing amount's own
+    column, never from which of PESOS/USD the label named: a label glued to
+    the amount's own token has never been observed, but trusting geometry
+    over text here costs nothing and stays consistent with every other
+    movement row.
     """
     tokens = list(row.tokens)
     when: dt.date | None = None
@@ -718,22 +797,16 @@ def _parse_payment_row(
     if tokens and _DATE_RE.match(tokens[0].text) is not None:
         when = _parse_date_token(tokens[0].text, row.page, row.row)
         offset = 1
-    folded = tuple(fold(token.text) for token in tokens[offset : offset + 4])
-    if folded != _PAYMENT_PESOS_PREFIX and folded != _PAYMENT_USD_PREFIX:
+    remaining = tokens[offset:]
+    if not remaining:
         return None
-    rest = tokens[offset + 4 :]
-    if not rest:
-        raise CardLiquidacionParseError(
-            f"page {row.page}, row {row.row}: a payment row carries no amount"
-        )
-    amount_token = rest[-1]
+    despaced = "".join(fold(token.text) for token in remaining)
+    if not despaced.startswith("supagoen"):
+        return None
+    amount_token = remaining[-1]
     if not _is_amount_token(amount_token.text):
         raise CardLiquidacionParseError(
-            f"page {row.page}, row {row.row}: a payment row's trailing field is not an amount"
-        )
-    if len(rest) > 1:
-        raise CardLiquidacionParseError(
-            f"page {row.page}, row {row.row}: a payment row carries unexpected extra fields"
+            f"page {row.page}, row {row.row}: a payment row carries no trailing amount"
         )
     currency = _classify_column(amount_token, pesos_edge, dolares_edge, row.page, row.row)
     amount = _parse_amount(amount_token.text, row.page, row.row, "amount")
@@ -774,6 +847,13 @@ def _parse_charge_row(
     ``None`` means "not a charge row at all" (no leading date, or the shape
     matches no known charge class) -- the caller decides whether that is the
     section's terminator or a genuine refusal.
+
+    The shape is matched on the row's **despaced** head text (every token
+    but the trailing amount): the real document glues a charge label, its
+    rate and its parenthesized base into one token with no space at all
+    (``IIBBPERCEP-CABA9,99%(``, T-07d second real-file correction), so
+    ``_DB_RG_RE``/``_IVA_RG_RE`` never require a space before the regime
+    number, and the ``IIBB PERCEP-`` prefix is checked despaced too.
     """
     tokens = list(row.tokens)
     if not tokens or _DATE_RE.match(tokens[0].text) is None:
@@ -791,10 +871,10 @@ def _parse_charge_row(
     if not head:
         return None
     label = " ".join(token.text for token in head)
-    folded_label = fold(label)
-    if folded_label.startswith("iibb percep-") or _DB_RG_RE.match(folded_label) is not None:
+    despaced_head = "".join(fold(token.text) for token in head)
+    if despaced_head.startswith("iibbpercep-") or _DB_RG_RE.match(despaced_head) is not None:
         charge_class = ChargeClass.PERCEPCION
-    elif _IVA_RG_RE.match(folded_label) is not None:
+    elif _IVA_RG_RE.match(despaced_head) is not None:
         charge_class = ChargeClass.IVA
     else:
         return None
@@ -829,7 +909,7 @@ def _parse_consumption_section(
     movements: list[Movement] = []
     while index < len(rows):
         row = rows[index]
-        if _folded_prefix(row, 2) == ("total", "consumos"):
+        if _row_starts_with(row, "TOTAL CONSUMOS"):
             printed = _row_ordered_amounts(row, "TOTAL CONSUMOS")
             return movements, printed, index + 1
         if not row.tokens or _DATE_RE.match(row.tokens[0].text) is None:
