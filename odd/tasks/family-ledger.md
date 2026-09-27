@@ -1776,22 +1776,12 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
 
 ## Next step
 
-0. **Resume here (2026-09-27, real-file probe correction):** T-03 and T-01d are closed and
-   reviewed; T-08a (the Brubank parser, with its region fix `24ce845`) and T-08b (the wiring) are
-   delivered and reviewed (the `3130fb3..11b7059` slice, review `review-cd6bec3fc5da0e6c`, approved
-   and burned). The T-08c probe was run against the real file (4 pages) and **refused**: the
-   T-08a/T-08b layout assumption (a header that repeats verbatim as an end-of-document recap) was
-   wrong — pypdfium2 merges the header's two visual columns into one line per field, and the
-   page-3 block is not a recap but a second, quiescent USD account. Both are now fixed (owner
-   decision 2026-09-27: ARS header exactly once, an optional USD block accepted only when
-   quiescent), with rewritten fixtures and 748 passed / 2 skipped, `ruff` clean — see the T-08 entry
-   above for the full RED/GREEN record. **Next: re-run the probe against the real file**
-   (`EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python tools/probe_brubank.py`, no `--text`) to
-   confirm this fix against the actual statement and that `Intereses pagados` never appears as a
-   debit (T-08b's fixed-destination assumption) — done, and the slice review closed T-08 (see the
-   T-08 entry). The T-08 header-scan follow-up (restrict the header search to lines outside table
-   regions) is fixed — see the T-08 entry's 2026-09-27 follow-up note. **Next: T-07 (BBVA).** Open
-   follow-ups are recorded in the T-03, T-01d and T-08 entries.
+0. **Resume here (2026-09-27 close):** T-08 (Brubank) is closed: parser, wiring and probe are
+   committed, the real-file probe passes (28 movements, all seven checks ok) and the
+   `11b7059..eaad7cc` slice was reviewed (`review-341ee898cd4601c0`, approved and burned). The
+   header-scan follow-up is fixed in `09ed714` (assessed medium, `under_budget`, 196 lines): its
+   review is pending in the slice from `eaad7cc`. **Next: T-07 (BBVA).** Still open from T-08: the
+   probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
    checklist — **T-03** (the MEP and CCL series) — plus the deferred T-01c/T-01d units and the
