@@ -716,6 +716,17 @@ market rate. Confirm the exact presentation against a real statement before enco
       `ahorro`) were added to the ledger-side baseline with the owner's approval. Native review:
       consent **declined** for this candidate (`sha256:9483d0b5…`, medium, 1710 lines), so it is
       unreviewed. **Next: T-07b** (wiring, `CreationDate` anchor, sub-account → ledger mapping).
+      **T-07b owner decision 2026-09-27:** the sub-account maps to its ledger account by
+      **kind + currency**, with no private configuration: `CA $` → `Assets:BBVA:<person>:Caja`,
+      `CC $` → `Assets:BBVA:<person>:CuentaCorriente`, `CA U$S` → `Assets:BBVA:<person>:CajaUSD`,
+      `CA EUR` → `Assets:BBVA:<person>:CajaEUR`; the person comes from the statement path, as in
+      Brubank. Any other kind/currency pair refuses, and a statement holding two blocks with the
+      same kind + currency refuses rather than merging them. Accepted tradeoff: two same-kind,
+      same-currency accounts held in separate statements would share one ledger account, and only
+      the balance assertions would catch it. Rejected: a private account-number map (one more file
+      holding personal data) and a folder per account (still needs kind + currency per block).
+      Route: delegated direct (writer trigger: importer module + registry + pipeline + tests).
+      TDD strict, runner `uv run pytest`.
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
