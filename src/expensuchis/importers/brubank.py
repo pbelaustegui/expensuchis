@@ -51,10 +51,15 @@ starts right after a table-header line and ends at the recap block's first
 field, the footer/period line, or the end of the page, whichever comes first.
 Inside that region every line must be exactly one of a movement row, a repeated
 table header, the footer/period line, or blank — never silently skipped just
-because it does not start with a date. Only *outside* the region (the header
-block that opens the document, and a page that never carries a table header at
-all, such as the trailing legal prose) does an unrecognized line stay
-unremarkable furniture, as it always has been. See :func:`_parse_movements`.
+because it does not start with a date. The region closes only on a line that
+*is* one of those closing shapes, not merely a line that resembles one: a
+header/recap field line closes it only when its label is one of the five known
+labels, and the footer/period line closes it only when the whole line matches
+that shape, not a period-shaped substring inside a longer line. Only *outside*
+the region (the header block that opens the document, and a page that never
+carries a table header at all, such as the trailing legal prose) does an
+unrecognized line stay unremarkable furniture — except a movement-row-shaped
+line, which is never furniture and always refuses. See :func:`_parse_movements`.
 
 Special rows
 ------------
@@ -200,12 +205,23 @@ _HEADER_LABELS: dict[str, str] = {
     "debitos": "declared_debits",
     "imp. trans. financieras": "financial_transactions_tax",
 }
-#: The footer's period line: ``dd Mon yyyy al dd Mon yyyy``. Not anchored, so it
-#: may sit inside a longer footer line (e.g. a ``Período: ...`` label) without
-#: this module needing to know the surrounding wording.
+#: The footer's period line: ``dd Mon yyyy al dd Mon yyyy``. Not anchored on its
+#: own, so :func:`_period` may find it sitting inside a longer footer line
+#: (e.g. a ``Período: ...`` label) without this module needing to know the
+#: exact surrounding wording.
 _PERIOD_RE = re.compile(
     r"(?P<d1>\d{1,2})\s+(?P<m1>\S+)\s+(?P<y1>\d{4})\s+al\s+"
     r"(?P<d2>\d{1,2})\s+(?P<m2>\S+)\s+(?P<y2>\d{4})",
+    re.IGNORECASE,
+)
+#: The *whole* footer line: an optional non-digit label (as loose as
+#: :data:`_HEADER_FIELD_RE`'s label, so a ``Período:`` prefix still matches)
+#: followed by the period shape and nothing else. Unlike :data:`_PERIOD_RE`,
+#: this is matched with ``fullmatch`` — used only to decide whether a line
+#: *is* the footer line (closing the table region), never to extract the
+#: period itself, which stays :func:`_period`'s job via ``search``.
+_FOOTER_LINE_RE = re.compile(
+    rf"^(?:[^\d\n]+\s)?{_PERIOD_RE.pattern}\s*$",
     re.IGNORECASE,
 )
 #: The repeated table header, folded into tokens so a stray extra space or a
@@ -398,6 +414,28 @@ def _amount(raw: str, line: int, field: str) -> Decimal:
         ) from None
 
 
+def _header_field(stripped: str) -> tuple[str, str] | None:
+    """Return ``(field, raw_amount)`` when ``stripped`` is a known header/recap line.
+
+    Matched structurally by :data:`_HEADER_FIELD_RE` first (any non-digit label
+    then an amount), then the folded label is checked against
+    :data:`_HEADER_LABELS`: a coincidental label-shaped line — any run of
+    non-digit text immediately followed by an amount, which a stray note or a
+    wrapped fragment inside the movement table can also look like — never
+    counts as a header field unless it names one of the five known ones.
+    Shared by :func:`_header_block` and :func:`_parse_movements`'s table-region
+    close, so the two can never disagree on what a header field is.
+    """
+    match = _HEADER_FIELD_RE.match(stripped)
+    if match is None:
+        return None
+    label = fold(match.group("label")).strip()
+    field = _HEADER_LABELS.get(label)
+    if field is None:
+        return None
+    return field, match.group("amount")
+
+
 def _header_block(rows: list[tuple[int, int, str]]) -> dict[str, Decimal]:
     """Return the five header fields, requiring each to appear exactly twice and agree.
 
@@ -411,14 +449,11 @@ def _header_block(rows: list[tuple[int, int, str]]) -> dict[str, Decimal]:
         field: [] for field in _HEADER_LABELS.values()
     }
     for _page, line, raw in rows:
-        match = _HEADER_FIELD_RE.match(raw.strip())
-        if match is None:
+        header_field = _header_field(raw.strip())
+        if header_field is None:
             continue
-        label = fold(match.group("label")).strip()
-        field = _HEADER_LABELS.get(label)
-        if field is None:
-            continue
-        occurrences[field].append((line, _amount(match.group("amount"), line, field)))
+        field, amount_raw = header_field
+        occurrences[field].append((line, _amount(amount_raw, line, field)))
 
     result: dict[str, Decimal] = {}
     for field, entries in occurrences.items():
@@ -547,17 +582,31 @@ def _parse_movements(rows: list[tuple[int, int, str]]) -> list[Movement]:
     """Parse every movement row, refusing any unrecognized line inside the table region.
 
     A page's **table region** starts right after a table-header line and ends at
-    the recap block's first field, a footer/period line, or the end of the page
-    — whichever comes first. Outside that region (the header block that opens
-    the document, and a page such as the trailing legal prose that never carries
-    a table header at all) nothing changes: a line that matches nothing is
-    simply not part of the table, exactly as before.
+    the recap block's first field, the footer/period line, or the end of the
+    page — whichever comes first. The region closes **only** on a line that is
+    structurally one of those two things, checked the same way the rest of the
+    module checks them: a header/recap field line closes it only when its
+    folded label is exactly one of the five known labels
+    (:func:`_header_field`, shared with :func:`_header_block` so the two can
+    never disagree), and the footer/period line closes it only when the *whole*
+    line matches the footer shape (:data:`_FOOTER_LINE_RE`, ``fullmatch``, not
+    a substring search). A line that merely resembles either shape — an
+    unknown label followed by an amount, or a line that happens to carry a
+    period-shaped substring among other text — is not a close: it falls
+    through to the final, unconditional refusal below, exactly like any other
+    unrecognized line.
+
+    Outside the region (the header block that opens the document, and a page
+    such as the trailing legal prose that never carries a table header at all)
+    a line that matches nothing stays unremarkable furniture, as it always
+    has — *except* a movement-row-shaped line (a date prefix), which is never
+    furniture: a movement row that appears once the region has closed (a stray
+    row after the recap, for instance) refuses rather than being silently
+    dropped, the same way a movement row inside a now-broken region would.
 
     Inside the region, every line must be exactly one of: a movement row, a
-    repeated table header, the footer/period line, or blank. A header/recap
-    field line (``Saldo Inicial``, ...) closes the region without being treated
-    as a row — it is parsed separately, by :func:`_header_block`. Anything else
-    — a stray fragment, a wrapped continuation, an unexplained line — refuses
+    repeated table header, the footer/period line, or blank. Anything else —
+    a stray fragment, a wrapped continuation, an unexplained line — refuses
     rather than being silently dropped: a dropped non-monetary line would pass
     every reconciliation check while still truncating a movement, the same
     silent-drop class the card-liquidación parser's reconnaissance (T-06b)
@@ -576,6 +625,12 @@ def _parse_movements(rows: list[tuple[int, int, str]]) -> list[Movement]:
         if not in_region:
             if _is_table_header(stripped):
                 in_region = True
+                continue
+            if _DATE_PREFIX_RE.match(stripped) is not None:
+                raise ResumenParseError(
+                    f"page {page}, line {line}: a movement-row-shaped line appears outside "
+                    f"any movement table"
+                )
             continue
 
         if stripped == "":
@@ -585,10 +640,10 @@ def _parse_movements(rows: list[tuple[int, int, str]]) -> list[Movement]:
         if _DATE_PREFIX_RE.match(stripped) is not None:
             movements.append(_movement_from_line(stripped, page, line))
             continue
-        if _PERIOD_RE.search(stripped) is not None:
+        if _FOOTER_LINE_RE.fullmatch(stripped) is not None:
             in_region = False
             continue
-        if _HEADER_FIELD_RE.match(stripped) is not None:
+        if _header_field(stripped) is not None:
             in_region = False
             continue
 

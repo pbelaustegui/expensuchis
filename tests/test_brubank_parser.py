@@ -555,6 +555,72 @@ def test_a_missing_period_line_refuses() -> None:
     assert "period" in str(excinfo.value)
 
 
+def test_an_unknown_label_and_amount_line_inside_the_table_refuses() -> None:
+    """``_HEADER_FIELD_RE`` matches any label-then-amount shape, not only the five
+
+    known header labels. A stray line like a bank commission note ending in an
+    amount must not be mistaken for a header/recap field closing the region —
+    it must refuse, not silently close the region and drop the rows that
+    follow on the same page.
+    """
+    text = MULTIPAGE.replace(
+        "05-09-26 1618033988 De una cuenta tuya - BBVA - 2.500,00 59.874,13\n"
+        "10-09-26 1414213562 Intereses pagados - 321,45 60.195,58\n",
+        "05-09-26 1618033988 De una cuenta tuya - BBVA - 2.500,00 59.874,13\n"
+        "Comisión mantenimiento cuenta 1.234,56\n"
+        "10-09-26 1414213562 Intereses pagados - 321,45 60.195,58\n",
+    )
+    with pytest.raises(ResumenParseError) as excinfo:
+        parse_resumen(text)
+    message = str(excinfo.value)
+    assert "Comisión mantenimiento cuenta" not in message
+    assert "1.234,56" not in message
+    assert "unrecognized" in message
+    assert "page 2" in message
+
+
+def test_a_period_shaped_substring_among_other_text_inside_the_table_refuses() -> None:
+    """The region must close on the *whole* footer line, not a substring search.
+
+    A note that merely contains a period-shaped run of text among other words
+    is not the footer line and must refuse, not silently close the region.
+    """
+    text = MULTIPAGE.replace(
+        "05-09-26 1618033988 De una cuenta tuya - BBVA - 2.500,00 59.874,13\n"
+        "10-09-26 1414213562 Intereses pagados - 321,45 60.195,58\n",
+        "05-09-26 1618033988 De una cuenta tuya - BBVA - 2.500,00 59.874,13\n"
+        "nota interna 31 Ago 2026 al 20 Sep 2026 pendiente de revision\n"
+        "10-09-26 1414213562 Intereses pagados - 321,45 60.195,58\n",
+    )
+    with pytest.raises(ResumenParseError) as excinfo:
+        parse_resumen(text)
+    message = str(excinfo.value)
+    assert "nota interna" not in message
+    assert "pendiente de revision" not in message
+    assert "unrecognized" in message
+    assert "page 2" in message
+
+
+def test_a_movement_row_after_the_recap_footer_on_the_same_page_refuses() -> None:
+    """A movement row must never be silently ignored, even outside a closed region.
+
+    Once the table region on the last page closes at the footer/period line,
+    a further movement-row-shaped line on that same page is not furniture: it
+    must refuse rather than being dropped.
+    """
+    text = MULTIPAGE.replace(
+        "Imp. Trans. Financieras $ 99,00\nPeríodo 31 Ago 2026 al 20 Sep 2026\n",
+        "Imp. Trans. Financieras $ 99,00\nPeríodo 31 Ago 2026 al 20 Sep 2026\n"
+        "25-09-26 9999999999 Otra Persona 1,00 - 1,00\n",
+    )
+    with pytest.raises(ResumenParseError) as excinfo:
+        parse_resumen(text)
+    message = str(excinfo.value)
+    assert "Otra Persona" not in message
+    assert "outside" in message
+    assert "page 3" in message
+
+
 def test_disagreeing_period_lines_refuse_without_echoing_the_dates() -> None:
     text = MULTIPAGE.replace(
         "Período 31 Ago 2026 al 20 Sep 2026\n"
