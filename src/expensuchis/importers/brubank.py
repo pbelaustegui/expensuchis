@@ -201,13 +201,18 @@ CHECK_NAMES: tuple[str, ...] = (
 _ARS_AMOUNT = r"\d{1,3}(?:\.\d{3})*,\d{2}"
 
 _DATE_PREFIX_RE = re.compile(r"^\d{2}-\d{2}-\d{2}\s")
+#: The real statement prints every amount cell as ``$ <amount>`` and an empty
+#: cell as a bare ``-`` (confirmed against the real file, 2026-09-27). The
+#: ``$`` is consumed outside the named groups, and only when a digit follows,
+#: so ``$ -`` is never read as an empty cell.
+_CURRENCY_PREFIX = r"(?:\$\s*(?=\d))?"
 _ROW_RE = re.compile(
     rf"^(?P<day>\d{{2}})-(?P<month>\d{{2}})-(?P<year>\d{{2}})\s+"
     rf"(?P<ref>\d{{10}})\s+"
     rf"(?P<description>.+?)\s+"
-    rf"(?P<debito>-|{_ARS_AMOUNT})\s+"
-    rf"(?P<credito>-|{_ARS_AMOUNT})\s+"
-    rf"(?P<saldo>{_ARS_AMOUNT})\s*$"
+    rf"{_CURRENCY_PREFIX}(?P<debito>-|{_ARS_AMOUNT})\s+"
+    rf"{_CURRENCY_PREFIX}(?P<credito>-|{_ARS_AMOUNT})\s+"
+    rf"{_CURRENCY_PREFIX}(?P<saldo>{_ARS_AMOUNT})\s*$"
 )
 _HEADER_LABELS: dict[str, str] = {
     "saldo inicial": "opening",

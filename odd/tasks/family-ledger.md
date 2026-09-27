@@ -797,6 +797,18 @@ market rate. Confirm the exact presentation against a real statement before enco
       non-trivial files). **The real file has still not been re-run against this fix** — T-08's
       checkbox stays unchecked until `EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python
       tools/probe_brubank.py` (no `--text`) is run by the parent against the actual statement.
+      **T-08c real-file run, second pass (2026-09-27).** The re-run against `607137f` refused one step
+      later: `line 10: a movement row has an unrecognized shape`. A masked token tally of the 28 real
+      rows showed every amount cell printed as `$ <amount>` and an empty cell as a bare `-`
+      (`DATE REF desc $ AMT - $ AMT` for debits, `DATE REF desc - $ AMT $ AMT` for credits, with a
+      ` - ` inside three descriptions). Fixed parent-inline (one mechanical regex change):
+      `_ROW_RE` consumes an optional `$` before each amount, outside the named groups and only when
+      a digit follows; fixture rows and the test literals rewritten to the real `$` shape. RED: 55
+      failed / 693 passed; GREEN: 748 passed / 2 skipped, `ruff check` clean. **Real-file probe:
+      passes** — 4 pages, 28 movements (24 ordinary, 1 interest, 3 internal transfers), all seven
+      checks ok; stray-date-lines-outside-region 0 (the slice-review WARNING does not bite on this
+      file); both regions close by footer; `Intereses pagados` credit 1, debit 0 (T-08b's
+      assumption holds on this file). T-08 stays unchecked only until the slice review closes.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
@@ -1754,9 +1766,9 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    above for the full RED/GREEN record. **Next: re-run the probe against the real file**
    (`EXPENSUCHIS_BRUBANK_STATEMENTS=<path> uv run python tools/probe_brubank.py`, no `--text`) to
    confirm this fix against the actual statement and that `Intereses pagados` never appears as a
-   debit (T-08b's fixed-destination assumption) — the probe's checks, shape and direction facts
-   answer both. T-08's checkbox stays unchecked until that real-file run passes. Open follow-ups
-   are recorded in the T-03, T-01d and T-08 entries.
+   debit (T-08b's fixed-destination assumption) — **done: the second real-file run passes** (see
+   the T-08 entry). Next: the native review of the `11b7059..HEAD` slice, then check T-08. Open
+   follow-ups are recorded in the T-03, T-01d and T-08 entries.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
    checklist — **T-03** (the MEP and CCL series) — plus the deferred T-01c/T-01d units and the

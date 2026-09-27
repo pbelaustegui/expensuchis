@@ -594,7 +594,7 @@ def test_pipeline_extract_stages_keys_and_a_second_run_reports_them_skipped(
         "Débitos $ 0,00\n"
         "Imp. Trans. Financieras $ 0,00\n"
         "Fecha #Ref Descripción Débito Crédito Saldo\n"
-        "10-09-26 1414213562 Intereses pagados - 321,45 321,45\n"
+        "10-09-26 1414213562 Intereses pagados - $ 321,45 $ 321,45\n"
         "Período 10 Sep 2026 al 10 Sep 2026\n"
     )
     _write_ledger(ledger)
