@@ -92,6 +92,47 @@ def test_every_concept_class_is_classified() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("row", "kind"),
+    [
+        ("06/09 CUENTA VISA 58273941605837", MovementKind.VISA_SETTLEMENT),
+        ("07/09 CUENTA MASTERCARD 70491638527049", MovementKind.MASTERCARD_SETTLEMENT),
+    ],
+)
+def test_a_card_settlement_row_may_print_nro_before_its_account(
+    row: str, kind: MovementKind
+) -> None:
+    """The real statement prints ``CUENTA VISA NRO. <account>`` (T-07c probe,
+    2026-09-27); the shorter form stays accepted."""
+    account = row.rsplit(" ", 1)[1]
+    text = FULL.replace(row, row.replace(account, f"NRO. {account}"), 1)
+    assert text != FULL
+    movements = _parse(text).movements
+    assert [m.kind for m in movements].count(kind) == 1
+
+
+def test_a_salary_row_may_carry_a_trailing_detail() -> None:
+    """The real statement prints a word and a reference after ``PAGO HABERES``
+    (T-07c probe, 2026-09-27); salary posts to a fixed account, so the detail
+    only has to be accepted, never interpreted."""
+    text = FULL.replace("004 PAGO HABERES 5", "004 PAGO HABERES FULANOS QX4817293 5", 1)
+    assert text != FULL
+    movements = _parse(text).movements
+    assert [m.kind for m in movements].count(MovementKind.SALARY) == 1
+
+
+def test_a_sent_transfer_row_may_print_its_origin_account_with_separators() -> None:
+    """The real statement prints the origin account as ``ddd-dddddd/d`` (T-07c
+    probe, 2026-09-27); the unseparated form stays accepted."""
+    text = FULL.replace("CBU $ 0002222222", "CA $ 000-222222/2", 1).replace(
+        "CBU $ 0004444444", "CA $ 000-444444/4", 1
+    )
+    assert text != FULL
+    movements = _parse(text).movements
+    transfers = [m for m in movements if m.kind is MovementKind.TRANSFER_OUT]
+    assert [m.recipient_cuit for m in transfers] == ["20000000001", "20000000002"]
+
+
 def test_a_debit_card_purchase_carries_its_joined_merchant() -> None:
     movements = _parse(FULL).movements
     purchases = [m for m in movements if m.kind is MovementKind.DEBIT_CARD_PURCHASE]
