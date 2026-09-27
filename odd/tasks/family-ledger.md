@@ -729,6 +729,16 @@ market rate. Confirm the exact presentation against a real statement before enco
       against the real file (carried over from T-08a), and confirm `Intereses pagados` never
       appears as a debit in the real file (this unit's fixed destination assumes it never does,
       mirroring only Provincia's positive-interest branch).
+      **Slice review 2026-09-27** (`3130fb3..11b7059`, covering `24ce845` and `11b7059`, 1253
+      lines): assessed high (`process_boundary` in the importer tests); owner granted; four-lens
+      native review `review-cd6bec3fc5da0e6c` **approved**, acknowledged and burned. Non-blocking
+      findings, recorded for T-08c: two WARNINGs (R3/R4, same root) — any date-prefixed line
+      outside a table region now refuses, so a dated generation stamp or dated legal prose in the
+      real file would reject a valid statement; and the footer match is both brittle (fullmatch:
+      a trailing page counter after the period keeps the region open) and loose (a digit-free
+      note followed by a period-shaped run closes it). Suggestions: no test pins the
+      `CounterpartyClassificationError` preservation in `pipeline.py`, and four readability nits
+      in `brubank_importer.py` and the parser tests.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
