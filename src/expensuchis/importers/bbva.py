@@ -91,6 +91,17 @@ The natural key
 ``<account>:<date>:<amount>:<balance>`` (owner decision 2, "Dedup key for
 every row"). The section-A detail row's six-digit id is metadata only and
 plays no part in the key.
+
+Sub-account blocks
+-------------------
+
+:attr:`ExtractoConsolidado.blocks` exposes every parsed sub-account block's
+``kind`` (``cc``/``ca``), ``currency`` and ``account`` number, independently
+of whether the block carries any movement. A :class:`Movement`'s own
+``account`` field is the raw sub-account number; the block's ``kind`` and
+``currency`` are not repeated onto every movement, so the caller (T-07b's
+importer, which maps kind + currency to a ledger account) reads them from
+here instead.
 """
 
 from __future__ import annotations
@@ -107,6 +118,7 @@ from ..numbers import AmountFormat, AmountParseError, parse_amount
 
 __all__ = [
     "CHECK_NAMES",
+    "AccountBlock",
     "CheckResult",
     "ExtractoConsolidado",
     "ExtractoConsolidadoParseError",
@@ -279,12 +291,28 @@ class CheckResult:
 
 
 @dataclass(frozen=True)
+class AccountBlock:
+    """One parsed sub-account block's identity: kind, currency and account number.
+
+    ``kind`` is ``"cc"`` or ``"ca"`` and ``currency`` is one of
+    :data:`_KNOWN_CURRENCIES`, both folded. Exposed independently of whether
+    the block carries any movement -- see the module docstring, "Sub-account
+    blocks".
+    """
+
+    kind: str
+    currency: str
+    account: str
+
+
+@dataclass(frozen=True)
 class ExtractoConsolidado:
     """A fully reconciled statement. Only :func:`parse_extracto_consolidado` builds one."""
 
     close_date: dt.date
     movements: tuple[Movement, ...]
     checks: tuple[CheckResult, ...]
+    blocks: tuple[AccountBlock, ...]
 
 
 class ExtractoConsolidadoParseError(ValueError):
@@ -1075,4 +1103,8 @@ def parse_extracto_consolidado(
         close_date=primary_close_date,
         movements=tuple(movements),
         checks=checks,
+        blocks=tuple(
+            AccountBlock(kind=block.kind, currency=block.currency, account=block.account)
+            for block in blocks
+        ),
     )

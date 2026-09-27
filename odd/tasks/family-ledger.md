@@ -716,6 +716,36 @@ market rate. Confirm the exact presentation against a real statement before enco
       `ahorro`) were added to the ledger-side baseline with the owner's approval. Native review:
       consent **declined** for this candidate (`sha256:9483d0b5…`, medium, 1710 lines), so it is
       unreviewed. **Next: T-07b** (wiring, `CreationDate` anchor, sub-account → ledger mapping).
+      **T-07b owner decision 2026-09-27:** the sub-account maps to its ledger account by
+      **kind + currency**, with no private configuration: `CA $` → `Assets:BBVA:<person>:Caja`,
+      `CC $` → `Assets:BBVA:<person>:CuentaCorriente`, `CA U$S` → `Assets:BBVA:<person>:CajaUSD`,
+      `CA EUR` → `Assets:BBVA:<person>:CajaEUR`; the person comes from the statement path, as in
+      Brubank. Any other kind/currency pair refuses, and a statement holding two blocks with the
+      same kind + currency refuses rather than merging them. Accepted tradeoff: two same-kind,
+      same-currency accounts held in separate statements would share one ledger account, and only
+      the balance assertions would catch it. Rejected: a private account-number map (one more file
+      holding personal data) and a folder per account (still needs kind + currency per block).
+      Route: delegated direct (writer trigger: importer module + registry + pipeline + tests).
+      TDD strict, runner `uv run pytest`.
+      **T-07b delivered 2026-09-27** — commit `25109cc` (`importers/bbva_importer.py`,
+      `tests/test_bbva_importer.py` with 29 tests, `pdf.read_creation_date()`, the registry entry
+      and `pipeline.py`'s `_PRESERVED_MESSAGE_TYPES`). `bbva.py` gained an additive
+      `AccountBlock` and `ExtractoConsolidado.blocks`, because the parser never exposed a block's
+      kind and currency (the 43 parser tests pass unchanged). Transfer map keys: a sent
+      transfer by its recipient CUIT (shown as `<cuit>` in refusals), a received one by the name
+      left after stripping its verb. The path segment is `Bbva`; `SOURCE` is `BBVA`. RED: a
+      collection failure (missing module); GREEN: 832 passed / 4 skipped, `ruff` clean.
+      Assessed **high**; owner granted; native review `review-3796dddefa2fe367` (four lenses)
+      opened one correction: R3/R4 CRITICAL, every posting booked as `ARS` even for the `u$s`
+      and `eur` blocks routed to `CajaUSD`/`CajaEUR`. The parser refuses a foreign block with
+      movement, so no real statement reaches that path; it was fixed anyway in `2536c01` (the
+      commodity follows the block's currency, including the refusal message). RED: 3 failed;
+      GREEN: 835 passed / 4 skipped. Targeted validation **approved**, acknowledged and burned.
+      Advisory follow-ups (non-blocking): the BBVA `SourceAccountError` is not in
+      `_PRESERVED_MESSAGE_TYPES` (`pipeline.py:161`), so a bad path reaches the CLI as a bare
+      class name; the empty-name refusal for a received transfer is worded as a parse error;
+      misleading fixture labels and a duplicated counterparty mapping in the tests.
+      **Next: T-07c** (the real-file probe).
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
@@ -1861,7 +1891,7 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    suspected prompt injection. It was abandoned (`operator_disposition`, no results captured), and
    its read-only candidate view was deleted by hand because it held copies of `sample/*.beancount`
    that the privacy pre-commit refuses. That is a transport failure, not an approval: re-review
-   from `a8bc31e` once the relay works. **Next: T-07 (BBVA).** Still open from T-08: the
+   from `a8bc31e` once the relay works. **Next: T-07c (BBVA real-file probe);** T-07a/b are delivered, see the T-07 entry. Still open from T-08: the
    probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
