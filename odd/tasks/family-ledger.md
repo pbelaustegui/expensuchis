@@ -693,6 +693,18 @@ market rate. Confirm the exact presentation against a real statement before enco
       gate and fixtures; **T-08b** the importer wiring; **T-08c** the acceptance probe against the
       real file. TDD strict, runner `uv run pytest`. T-08a route: delegated direct (writer
       trigger: parser, fixtures, tests).
+      **T-08a delivered 2026-09-26** — commit `a3377c1` (`importers/brubank.py`, 50 parser tests,
+      two synthetic fixtures). One pre-commit correction by the parent: the first draft skipped
+      every non-date line silently; the table is now an explicit per-page region that refuses any
+      unrecognized line (RED: 2 failed; GREEN: 698 passed / 2 skipped, ruff clean). Assessed medium,
+      `slice_budget_reached`; owner granted; native review `review-8c4658400d3ec133` (reliability)
+      **approved**, acknowledged and burned. Open follow-up, WARNING: the region closes on
+      `_HEADER_FIELD_RE` (any label-then-amount line, not only the five header labels) and on an
+      unanchored period search, so a stray amount-bearing or period-shaped line inside the table
+      closes the region and later rows on that page are skipped (reconciliation then fails loudly
+      if they carry money, but the refusal points at the wrong cause). Assumptions T-08c must check
+      against the real file: the header/recap and period line shapes, and whether a generation
+      stamp falls inside the table region.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
