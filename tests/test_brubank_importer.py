@@ -237,10 +237,10 @@ def test_every_kind_posts_to_its_decided_account() -> None:
             "2026-09-05",
             "Brubank",
             "De una cuenta tuya - BBVA",
-            "2026-09-05:1618033988:2500.00",
+            "2026-09-05:1618033988:2461.83",
             (
-                ("Assets:Brubank:P1:Caja", "2500.00", "ARS"),
-                ("Assets:TransferenciaEnTransito", "-2500.00", "ARS"),
+                ("Assets:Brubank:P1:Caja", "2461.83", "ARS"),
+                ("Assets:TransferenciaEnTransito", "-2461.83", "ARS"),
             ),
         ),
         (
@@ -460,7 +460,7 @@ def test_a_reconciliation_failure_propagates_untouched() -> None:
     consistent and the failure is genuinely the running-balance-chain check,
     not a header parse failure.
     """
-    mutated = MINIMAL.replace("13.500,00", "13.500,01", 1)
+    mutated = MINIMAL.replace("13.973,19", "13.973,20", 1)
     importer = BrubankImporter(text_reader=lambda _path: mutated)
 
     with pytest.raises(ReconciliationError) as excinfo:

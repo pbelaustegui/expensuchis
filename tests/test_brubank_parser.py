@@ -65,7 +65,7 @@ MULTIPAGE = _load("multipage.txt")
 
 FIXTURES_TABLE = [
     ("minimal.txt", MINIMAL, 2, Decimal("3500.00"), Decimal("1200.50")),
-    ("multipage.txt", MULTIPAGE, 5, Decimal("12697.99"), Decimal("1913.46")),
+    ("multipage.txt", MULTIPAGE, 5, Decimal("12659.82"), Decimal("1913.46")),
 ]
 
 
@@ -108,8 +108,8 @@ def test_every_check_reports_ok_on_a_good_fixture(name: str, text: str) -> None:
 def test_the_ars_header_block_is_parsed_into_one_value() -> None:
     resumen = parse_resumen(MULTIPAGE)
     assert resumen.opening == Decimal("48732.15")
-    assert resumen.closing == Decimal("59516.68")
-    assert resumen.declared_credits == Decimal("12697.99")
+    assert resumen.closing == Decimal("59478.51")
+    assert resumen.declared_credits == Decimal("12659.82")
     assert resumen.declared_debits == Decimal("1913.46")
     assert resumen.financial_transactions_tax == Decimal("99.00")
 
@@ -153,7 +153,7 @@ def test_an_internal_transfer_row_carries_the_counterpart_bank() -> None:
     movement = parse_resumen(MULTIPAGE).movements[2]
     assert movement.kind is MovementKind.INTERNAL_TRANSFER
     assert movement.transfer_bank == "BBVA"
-    assert movement.amount == Decimal("2500.00")
+    assert movement.amount == Decimal("2461.83")
 
 
 def test_an_interest_row_is_tagged_and_is_a_credit() -> None:
@@ -213,7 +213,7 @@ def test_the_natural_key_is_date_ref_amount() -> None:
     keys = movement_keys(parse_resumen(MULTIPAGE).movements)
     assert keys[0] == "2026-08-31:3141592653:9876.54"
     assert keys[1] == "2026-09-01:2718281828:-1234.56"
-    assert keys[2] == "2026-09-05:1618033988:2500.00"
+    assert keys[2] == "2026-09-05:1618033988:2461.83"
     assert keys[3] == "2026-09-10:1414213562:321.45"
     assert keys[4] == "2026-09-20:2236067977:-678.90"
 
@@ -256,7 +256,7 @@ def mutate_duplicate_ref(text: str) -> str:
 
 def mutate_closing_balance(text: str) -> str:
     """Move the declared closing balance by one centavo."""
-    return _replace_once(text, "Saldo Final $ 59.516,68", "Saldo Final $ 59.516,69")
+    return _replace_once(text, "Saldo Final $ 59.478,51", "Saldo Final $ 59.478,52")
 
 
 def mutate_credits_total(text: str) -> str:
@@ -266,7 +266,7 @@ def mutate_credits_total(text: str) -> str:
     the same (now-moved) figure, so ``header-balance-equation`` breaks too. See
     ``test_a_moved_credits_total_breaks_two_checks``.
     """
-    return _replace_once(text, "Créditos $ 12.697,99", "Créditos $ 12.698,99")
+    return _replace_once(text, "Créditos $ 12.659,82", "Créditos $ 12.660,82")
 
 
 def mutate_debits_total(text: str) -> str:
@@ -372,7 +372,7 @@ def test_reconciliation_diagnostics_never_echo_statement_text_or_amounts() -> No
         "3141592653",
         "1618033988",
         "48.732,15",
-        "59.516,68",
+        "59.478,51",
         "678,90",
         "20-09-26",
         "BBVA",
@@ -390,8 +390,8 @@ def test_reconciliation_diagnostics_never_echo_statement_text_or_amounts() -> No
 
 def test_a_row_with_both_debito_and_credito_refuses() -> None:
     text = MINIMAL.replace(
-        "01-09-26 1234567890 Persona Ejemplo - $ 3.500,00 $ 13.500,00",
-        "01-09-26 1234567890 Persona Ejemplo $ 1,00 $ 3.500,00 $ 13.500,00",
+        "01-09-26 1234567890 Persona Ejemplo - $ 3.500,00 $ 13.973,19",
+        "01-09-26 1234567890 Persona Ejemplo $ 1,00 $ 3.500,00 $ 13.973,19",
     )
     with pytest.raises(ResumenParseError) as excinfo:
         parse_resumen(text)
@@ -401,8 +401,8 @@ def test_a_row_with_both_debito_and_credito_refuses() -> None:
 
 def test_a_row_with_neither_debito_nor_credito_refuses() -> None:
     text = MINIMAL.replace(
-        "01-09-26 1234567890 Persona Ejemplo - $ 3.500,00 $ 13.500,00",
-        "01-09-26 1234567890 Persona Ejemplo - - $ 13.500,00",
+        "01-09-26 1234567890 Persona Ejemplo - $ 3.500,00 $ 13.973,19",
+        "01-09-26 1234567890 Persona Ejemplo - - $ 13.973,19",
     )
     with pytest.raises(ResumenParseError) as excinfo:
         parse_resumen(text)
@@ -412,8 +412,8 @@ def test_a_row_with_neither_debito_nor_credito_refuses() -> None:
 def test_a_row_with_a_minus_sign_is_an_unrecognized_shape_and_refuses() -> None:
     """The document carries no minus sign; a negative-looking amount fails to match at all."""
     text = MINIMAL.replace(
-        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.299,50",
-        "02-09-26 2345678901 Aguas Ejemplo -1.200,50 - 12.299,50",
+        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.772,69",
+        "02-09-26 2345678901 Aguas Ejemplo -1.200,50 - 12.772,69",
     )
     with pytest.raises(ResumenParseError) as excinfo:
         parse_resumen(text)
@@ -423,8 +423,8 @@ def test_a_row_with_a_minus_sign_is_an_unrecognized_shape_and_refuses() -> None:
 
 def test_an_unrecognized_row_shape_refuses_without_echoing_it() -> None:
     text = MINIMAL.replace(
-        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.299,50\n",
-        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.299,50\n"
+        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.772,69\n",
+        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.772,69\n"
         "03-09-26 algo sin forma reconocida\n",
     )
     with pytest.raises(ResumenParseError) as excinfo:
@@ -461,9 +461,9 @@ def test_an_extra_line_between_two_movement_rows_refuses() -> None:
 def test_an_unrecognized_line_before_the_footer_refuses() -> None:
     """A line between the last row and the footer is still inside the region."""
     text = MULTIPAGE.replace(
-        "20-09-26 2236067977 Electrica Ejemplo $ 678,90 - $ 59.516,68\n"
+        "20-09-26 2236067977 Electrica Ejemplo $ 678,90 - $ 59.478,51\n"
         "Período 31 Ago 2026 al 20 Sep 2026",
-        "20-09-26 2236067977 Electrica Ejemplo $ 678,90 - $ 59.516,68\n"
+        "20-09-26 2236067977 Electrica Ejemplo $ 678,90 - $ 59.478,51\n"
         "nota inesperada\n"
         "Período 31 Ago 2026 al 20 Sep 2026",
     )
@@ -491,8 +491,8 @@ def test_a_malformed_date_inside_the_table_refuses_at_parse_time_not_reconciliat
 
 def test_a_row_carrying_the_forbidden_financial_transactions_tax_refuses() -> None:
     text = MINIMAL.replace(
-        "01-09-26 1234567890 Persona Ejemplo - $ 3.500,00 $ 13.500,00",
-        "01-09-26 1234567890 Imp. Trans. Financieras - $ 3.500,00 $ 13.500,00",
+        "01-09-26 1234567890 Persona Ejemplo - $ 3.500,00 $ 13.973,19",
+        "01-09-26 1234567890 Imp. Trans. Financieras - $ 3.500,00 $ 13.973,19",
     )
     with pytest.raises(ResumenParseError) as excinfo:
         parse_resumen(text)
@@ -550,11 +550,11 @@ def test_an_unknown_label_and_amount_line_inside_the_table_refuses() -> None:
     on the same page.
     """
     text = MULTIPAGE.replace(
-        "05-09-26 1618033988 De una cuenta tuya - BBVA - $ 2.500,00 $ 59.874,13\n"
-        "10-09-26 1414213562 Intereses pagados - $ 321,45 $ 60.195,58\n",
-        "05-09-26 1618033988 De una cuenta tuya - BBVA - $ 2.500,00 $ 59.874,13\n"
+        "05-09-26 1618033988 De una cuenta tuya - BBVA - $ 2.461,83 $ 59.835,96\n"
+        "10-09-26 1414213562 Intereses pagados - $ 321,45 $ 60.157,41\n",
+        "05-09-26 1618033988 De una cuenta tuya - BBVA - $ 2.461,83 $ 59.835,96\n"
         "Comisión mantenimiento cuenta 1.234,56\n"
-        "10-09-26 1414213562 Intereses pagados - $ 321,45 $ 60.195,58\n",
+        "10-09-26 1414213562 Intereses pagados - $ 321,45 $ 60.157,41\n",
     )
     with pytest.raises(ResumenParseError) as excinfo:
         parse_resumen(text)
@@ -572,11 +572,11 @@ def test_a_period_shaped_substring_among_other_text_inside_the_table_refuses() -
     is not the footer line and must refuse, not silently close the region.
     """
     text = MULTIPAGE.replace(
-        "05-09-26 1618033988 De una cuenta tuya - BBVA - $ 2.500,00 $ 59.874,13\n"
-        "10-09-26 1414213562 Intereses pagados - $ 321,45 $ 60.195,58\n",
-        "05-09-26 1618033988 De una cuenta tuya - BBVA - $ 2.500,00 $ 59.874,13\n"
+        "05-09-26 1618033988 De una cuenta tuya - BBVA - $ 2.461,83 $ 59.835,96\n"
+        "10-09-26 1414213562 Intereses pagados - $ 321,45 $ 60.157,41\n",
+        "05-09-26 1618033988 De una cuenta tuya - BBVA - $ 2.461,83 $ 59.835,96\n"
         "nota interna 31 Ago 2026 al 20 Sep 2026 pendiente de revision\n"
-        "10-09-26 1414213562 Intereses pagados - $ 321,45 $ 60.195,58\n",
+        "10-09-26 1414213562 Intereses pagados - $ 321,45 $ 60.157,41\n",
     )
     with pytest.raises(ResumenParseError) as excinfo:
         parse_resumen(text)
@@ -595,9 +595,9 @@ def test_a_movement_row_after_the_footer_on_the_same_page_refuses() -> None:
     must refuse rather than being dropped.
     """
     text = MULTIPAGE.replace(
-        "20-09-26 2236067977 Electrica Ejemplo $ 678,90 - $ 59.516,68\n"
+        "20-09-26 2236067977 Electrica Ejemplo $ 678,90 - $ 59.478,51\n"
         "Período 31 Ago 2026 al 20 Sep 2026\n",
-        "20-09-26 2236067977 Electrica Ejemplo $ 678,90 - $ 59.516,68\n"
+        "20-09-26 2236067977 Electrica Ejemplo $ 678,90 - $ 59.478,51\n"
         "Período 31 Ago 2026 al 20 Sep 2026\n"
         "25-09-26 9999999999 Otra Persona $ 1,00 - $ 1,00\n",
     )
@@ -628,13 +628,13 @@ def test_disagreeing_period_lines_refuse_without_echoing_the_dates() -> None:
 
 _MERGED_HEADER_TEXT = (
     "Resumen de Movimientos\n"
-    "Tipo Caja de Ahorro Saldo Inicial $ 1.000,00\n"
+    "Tipo Caja de Ahorro Saldo Inicial $ 818,07\n"
     "Moneda Pesos (ARS) Créditos $ 500,00\n"
     "CUIT 20333333334 Débitos $ 200,00\n"
-    "Imp. Trans. Financieras $ 10,00 Saldo Final $ 1.300,00\n"
+    "Imp. Trans. Financieras $ 10,00 Saldo Final $ 1.118,07\n"
     "Fecha #Ref Descripción Débito Crédito Saldo\n"
-    "01-01-26 1111111111 Persona Ejemplo - $ 500,00 $ 1.500,00\n"
-    "02-01-26 2222222222 Aguas Ejemplo $ 200,00 - $ 1.300,00\n"
+    "01-01-26 1111111111 Persona Ejemplo - $ 500,00 $ 1.318,07\n"
+    "02-01-26 2222222222 Aguas Ejemplo $ 200,00 - $ 1.118,07\n"
     "Período 01 Ene 2026 al 02 Ene 2026\n"
 )
 
@@ -649,8 +649,8 @@ def test_merged_two_column_header_lines_are_parsed() -> None:
     should prevent recognizing every field correctly.
     """
     resumen = parse_resumen(_MERGED_HEADER_TEXT)
-    assert resumen.opening == Decimal("1000.00")
-    assert resumen.closing == Decimal("1300.00")
+    assert resumen.opening == Decimal("818.07")
+    assert resumen.closing == Decimal("1118.07")
     assert resumen.declared_credits == Decimal("500.00")
     assert resumen.declared_debits == Decimal("200.00")
     assert resumen.financial_transactions_tax == Decimal("10.00")
@@ -765,8 +765,8 @@ def test_a_debit_row_whose_description_ends_in_saldo_final_is_parsed_as_a_moveme
     the word-boundary bound on the label alone would not.
     """
     text = MINIMAL.replace(
-        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.299,50",
-        "02-09-26 2345678901 Pago Saldo Final $ 1.200,50 - $ 12.299,50",
+        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.772,69",
+        "02-09-26 2345678901 Pago Saldo Final $ 1.200,50 - $ 12.772,69",
     )
     resumen = parse_resumen(text)
     assert len(resumen.movements) == 2
@@ -777,8 +777,8 @@ def test_a_debit_row_whose_description_ends_in_saldo_final_is_parsed_as_a_moveme
 
 def test_a_debit_row_whose_description_ends_in_creditos_is_parsed_as_a_movement() -> None:
     text = MINIMAL.replace(
-        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.299,50",
-        "02-09-26 2345678901 Ajuste Créditos $ 1.200,50 - $ 12.299,50",
+        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.772,69",
+        "02-09-26 2345678901 Ajuste Créditos $ 1.200,50 - $ 12.772,69",
     )
     resumen = parse_resumen(text)
     assert len(resumen.movements) == 2
@@ -800,7 +800,7 @@ def test_a_label_glued_inside_a_word_on_a_prose_line_is_not_a_header_field() -> 
         "ComisionSaldo Final $ 999,99 Este documento",
     )
     resumen = parse_resumen(text)
-    assert resumen.closing == Decimal("59516.68")
+    assert resumen.closing == Decimal("59478.51")
     assert all(check.ok for check in resumen.checks)
 
 

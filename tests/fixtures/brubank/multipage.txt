@@ -1,16 +1,16 @@
 Resumen de Movimientos
 Tipo Caja de Ahorro Saldo Inicial $ 48.732,15
-Moneda Pesos (ARS) Créditos $ 12.697,99
+Moneda Pesos (ARS) Créditos $ 12.659,82
 CUIT 20111111111 Débitos $ 1.913,46
-Imp. Trans. Financieras $ 99,00 Saldo Final $ 59.516,68
+Imp. Trans. Financieras $ 99,00 Saldo Final $ 59.478,51
 Fecha #Ref Descripción Débito Crédito Saldo
 31-08-26 3141592653 Persona Ejemplo - $ 9.876,54 $ 58.608,69
 01-09-26 2718281828 Aguas Ejemplo $ 1.234,56 - $ 57.374,13
 Período 31 Ago 2026 al 20 Sep 2026
 Fecha #Ref Descripción Débito Crédito Saldo
-05-09-26 1618033988 De una cuenta tuya - BBVA - $ 2.500,00 $ 59.874,13
-10-09-26 1414213562 Intereses pagados - $ 321,45 $ 60.195,58
-20-09-26 2236067977 Electrica Ejemplo $ 678,90 - $ 59.516,68
+05-09-26 1618033988 De una cuenta tuya - BBVA - $ 2.461,83 $ 59.835,96
+10-09-26 1414213562 Intereses pagados - $ 321,45 $ 60.157,41
+20-09-26 2236067977 Electrica Ejemplo $ 678,90 - $ 59.478,51
 Período 31 Ago 2026 al 20 Sep 2026
 Tipo Caja de Ahorro Saldo Inicial U$S 50,00
 Moneda Dólar (USD) Créditos U$S 0,00

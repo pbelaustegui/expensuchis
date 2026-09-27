@@ -110,7 +110,7 @@ def test_the_multipage_fixture_prints_aggregates_and_no_statement_content(capsys
         "2236067977",
         "9.876,54",
         "1.234,56",
-        "2.500,00",
+        "2.461,83",
         "321,45",
         "678,90",
         "multipage.txt",
@@ -192,8 +192,8 @@ def test_a_stray_date_line_outside_a_region_is_counted_and_refuses(capsys, tmp_p
 def test_an_intereses_pagados_debit_row_is_counted_by_direction(capsys, tmp_path: Path) -> None:
     """Fact (3): T-08b assumed this never happens; the probe must still be able to see it."""
     mutated = MINIMAL.replace(
-        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.299,50",
-        "02-09-26 2345678901 Intereses pagados $ 1.200,50 - $ 12.299,50",
+        "02-09-26 2345678901 Aguas Ejemplo $ 1.200,50 - $ 12.772,69",
+        "02-09-26 2345678901 Intereses pagados $ 1.200,50 - $ 12.772,69",
         1,
     )
     assert mutated != MINIMAL
