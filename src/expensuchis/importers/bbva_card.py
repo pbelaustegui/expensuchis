@@ -185,6 +185,34 @@ absorbed rather than raising on "unexpected extra fields" (no such content
 has been observed, and the amount is still unambiguously the row's last
 token either way).
 
+Page furniture
+---------------
+
+Every real page carries two more kinds of furniture the reconnaissance had
+not sampled until the fourth pass:
+
+* a **vertical right-margin run**, roughly 64 single-character tokens per
+  page starting at x0≈579 -- well past the DÓLARES edge (x1≈574) that no
+  real amount ever reaches. :func:`_strip_margin_tokens` drops every token
+  whose ``x0`` is at or past the document's own derived DÓLARES (or PESOS,
+  when there is no DÓLARES column) edge plus :data:`_MARGIN_TOLERANCE`, once,
+  right after the column edges are derived and before any other row is
+  read. A row left with no tokens after the drop is dropped whole. This
+  runs at the parser level, deliberately: :func:`expensuchis.importers.pdf.read_pdf_rows`
+  stays a generic primitive with no notion of what any statement's margin
+  looks like.
+* a **page/of counter** row (``_is_page_counter``, :data:`_PAGE_COUNTER_RE`),
+  repeated at the top of every page and never confined to a boundary
+  between sections -- it can just as well land in the middle of a
+  consumption section (a page break mid-table) as between two of them, so it
+  is skipped everywhere a page-counter check would otherwise have to raise:
+  the top-level section loop, inside a consumption section, and inside the
+  charges section. It is matched by **shape**, exactly like a charge row,
+  never merely by position or by appearing "between" two other rows -- a
+  row that merely *looks* like it might be page furniture but does not
+  match the counter's shape is still an unrecognized line and still
+  refuses.
+
 Masking
 -------
 
@@ -277,6 +305,14 @@ CHECK_NAMES: tuple[str, ...] = (
 #: two-digit tolerance still cannot straddle both.
 _COLUMN_TOLERANCE = 10.0
 
+#: The margin past the detail header's own DÓLARES (or PESOS, if there is no
+#: DÓLARES column) right edge, beyond which a token is page furniture, never
+#: real data. Confirmed against the real files (T-07d, fourth pass): every
+#: page carries a vertical run of right-margin text starting at x0≈579, well
+#: past the DÓLARES edge (x1≈574), and no real data token's own x0 ever
+#: reaches that far -- see :func:`_strip_margin_tokens`.
+_MARGIN_TOLERANCE = 2.0
+
 _AMOUNT_TOKEN_RE = re.compile(r"^-?\$?\d{1,3}(?:\.\d{3})*,\d{2}-?$")
 _COMPROBANTE_RE = re.compile(r"^\d{6}$")
 _INSTALLMENT_RE = re.compile(r"^C\.(\d{1,2})/(\d{1,2})$", re.IGNORECASE)
@@ -287,6 +323,13 @@ _DATE_RE = re.compile(r"^(?P<day>\d{1,2})-(?P<month>[^\s\d-]+)-(?P<year>\d{2})$"
 #: so these never require a ``\s+`` between the label and its digits.
 _DB_RG_RE = re.compile(r"^db\.rg\d")
 _IVA_RG_RE = re.compile(r"^ivarg\d")
+#: A page/of counter, repeated at the top of every page: a document-word
+#: label, a parenthesized run of digits, a ``NdeM`` page count, a slash, and
+#: a second label with its own ``NdeM`` count -- one merged token, on its
+#: own row, wherever a page break falls (T-07d, fourth pass). Matched on
+#: despaced, folded text, so accented letters are already stripped by
+#: :func:`fold` before this ever runs.
+_PAGE_COUNTER_RE = re.compile(r"^[a-z]+\(\d{5,}\)\d+de\d+/[a-z]+\d+de\d+$")
 
 _MONTHS: dict[str, int] = {
     "enero": 1,
@@ -575,6 +618,44 @@ def _is_charges_heading(row: PositionedRow) -> bool:
 def _is_consumos_title(row: PositionedRow) -> bool:
     """A ``Consumos <name>`` section title -- furniture; the name is never read."""
     return _row_starts_with(row, "Consumos")
+
+
+def _is_page_counter(row: PositionedRow) -> bool:
+    """Whether ``row`` is the repeated page/of counter row -- furniture, everywhere.
+
+    Recognized by shape (:data:`_PAGE_COUNTER_RE`), never skipped by position:
+    it recurs at the top of every page, including in the middle of a
+    consumption section or between two sections, wherever a page break falls
+    (T-07d, fourth pass).
+    """
+    return _PAGE_COUNTER_RE.match(_row_despaced(row)) is not None
+
+
+def _strip_margin_tokens(
+    rows: Sequence[PositionedRow], pesos_edge: float, dolares_edge: float | None
+) -> tuple[PositionedRow, ...]:
+    """Drop every token past the detail header's own right edge, plus a small margin.
+
+    Every real page carries a vertical run of right-margin text (T-07d,
+    fourth pass) that a positioned-row primitive has no way to recognize as
+    furniture -- it is not a PDF library's job to know what a BBVA card
+    liquidación's own margin looks like, so this runs here, at the parser
+    level, over the document's *own* derived edge rather than a hardcoded
+    x-position. A row left with no tokens after the drop is dropped whole
+    (an empty :class:`PositionedRow` is never produced): this is what removes
+    the whole vertical run, since each of its rows carries only margin
+    tokens. A row that keeps at least one real token survives with only its
+    real content -- this is never observed in the real files (a margin
+    token has never shared a row with real data), but nothing here would
+    break if it did.
+    """
+    cutoff = (dolares_edge if dolares_edge is not None else pesos_edge) + _MARGIN_TOLERANCE
+    cleaned: list[PositionedRow] = []
+    for row in rows:
+        tokens = tuple(token for token in row.tokens if token.x0 < cutoff)
+        if tokens:
+            cleaned.append(PositionedRow(page=row.page, row=row.row, tokens=tokens))
+    return tuple(cleaned)
 
 
 def _parse_cierre_actual_date(rows: Sequence[PositionedRow], cierre_index: int) -> dt.date:
@@ -912,6 +993,9 @@ def _parse_consumption_section(
         if _row_starts_with(row, "TOTAL CONSUMOS"):
             printed = _row_ordered_amounts(row, "TOTAL CONSUMOS")
             return movements, printed, index + 1
+        if _is_page_counter(row):
+            index += 1
+            continue
         if not row.tokens or _DATE_RE.match(row.tokens[0].text) is None:
             raise CardLiquidacionParseError(
                 f"page {row.page}, row {row.row}: an unrecognized line appears inside a "
@@ -952,6 +1036,9 @@ def _parse_charges_section(
         row = rows[index]
         if _is_saldo_actual(row):
             return movements, index
+        if _is_page_counter(row):
+            index += 1
+            continue
         parsed = _parse_charge_row(row, pesos_edge, dolares_edge)
         if parsed is None:
             raise CardLiquidacionParseError(
@@ -1094,6 +1181,7 @@ def parse_card_liquidacion(rows: Sequence[PositionedRow]) -> CardLiquidacion:
 
     brand = _find_brand(rows)
     pesos_edge, dolares_edge = _find_column_edges(rows)
+    rows = _strip_margin_tokens(rows, pesos_edge, dolares_edge)
 
     cierre_index = _find_row(rows, _is_cierre_actual)
     if cierre_index is None:
@@ -1136,6 +1224,9 @@ def parse_card_liquidacion(rows: Sequence[PositionedRow]) -> CardLiquidacion:
             )
         row = rows[index]
         if _is_consumos_title(row):
+            index += 1
+            continue
+        if _is_page_counter(row):
             index += 1
             continue
         if _is_charges_heading(row):

@@ -110,6 +110,7 @@ def _flatten(rows: tuple[PositionedRow, ...]) -> str:
 VISA_FULL = _load("visa_full.txt")
 MASTERCARD_FULL = _load("mastercard_full.txt")
 VISA_MERGED_TOKENS = _load("visa_merged_tokens.txt")
+VISA_PAGEBREAKS = _load("visa_pagebreaks.txt")
 
 #: Each failing fixture breaks exactly one reconciliation check.
 FAILING_FIXTURES: list[tuple[str, str]] = [
@@ -131,6 +132,8 @@ STRUCTURAL_FIXTURES: list[str] = [
     "fail_no_brand.txt",
     "fail_no_cierre_date.txt",
     "fail_no_charges_header.txt",
+    "fail_stray_token_below_margin_cut.txt",
+    "fail_page_counter_wrong_shape.txt",
 ]
 
 #: Tokens a diagnostic must never echo: merchants, comprobantes and amounts
@@ -216,6 +219,45 @@ def test_visa_with_merged_tokens_reconciles_identically_to_the_split_one() -> No
         m.charge_class for m in merged.movements if m.kind is MovementKind.CHARGE
     }
     assert merged_charge_classes == {ChargeClass.PERCEPCION, ChargeClass.IVA}
+
+
+def test_visa_with_page_breaks_reconciles_identically_to_the_split_one() -> None:
+    """T-07d, fourth pass: every real page carries a vertical right-margin
+    run and a page/of counter row, and a page break can fall between
+    sections (right after the payments) or in the middle of one (mid
+    consumption section) -- both appear in this fixture, and parsing must
+    still agree with the fixture that has neither."""
+    with_breaks = parse_card_liquidacion(VISA_PAGEBREAKS)
+    split = parse_card_liquidacion(VISA_FULL)
+    assert [check.name for check in with_breaks.checks] == list(CHECK_NAMES)
+    assert all(check.ok for check in with_breaks.checks), [
+        check for check in with_breaks.checks if not check.ok
+    ]
+    assert with_breaks.close_date == split.close_date
+    assert with_breaks.opening_ars == split.opening_ars
+    assert with_breaks.opening_usd == split.opening_usd
+    assert with_breaks.detail_saldo_actual_ars == split.detail_saldo_actual_ars
+    assert with_breaks.detail_saldo_actual_usd == split.detail_saldo_actual_usd
+    assert len(with_breaks.movements) == len(split.movements)
+    # No margin character and no page-counter text ever reached a Movement.
+    for movement in with_breaks.movements:
+        assert movement.description not in {"a", "b", "c", "d", "e", "f", "m", "n", "o", "p"}
+        assert "pagina(" not in movement.description
+
+
+def test_a_page_counter_like_row_with_a_different_shape_still_refuses() -> None:
+    rows = _load("fail_page_counter_wrong_shape.txt")
+    with pytest.raises(CardLiquidacionParseError, match="unrecognized line"):
+        parse_card_liquidacion(rows)
+
+
+def test_a_stray_token_below_the_margin_cut_still_refuses() -> None:
+    """A token shaped like margin furniture but positioned *before* the
+    derived cut is not dropped, and is not automatically tolerated just
+    because it is short -- it must still be a recognized row shape."""
+    rows = _load("fail_stray_token_below_margin_cut.txt")
+    with pytest.raises(CardLiquidacionParseError, match="unrecognized line"):
+        parse_card_liquidacion(rows)
 
 
 def test_visa_brand_and_close_date_and_balances() -> None:
