@@ -632,9 +632,17 @@ def _is_page_counter(row: PositionedRow) -> bool:
 
 
 def _strip_margin_tokens(
-    rows: Sequence[PositionedRow], pesos_edge: float, dolares_edge: float | None
+    rows: Sequence[PositionedRow],
+    pesos_edge: float,
+    dolares_edge: float | None,
+    left_edge: float,
 ) -> tuple[PositionedRow, ...]:
-    """Drop every token past the detail header's own right edge, plus a small margin.
+    """Drop every token outside the detail header's own edges, plus a small margin.
+
+    Right: past the DÓLARES (or PESOS) right edge. Left: ending before the
+    detail header's ``FECHA`` token starts -- the real cards also carry a
+    vertical left-margin run at x≈29-56 on some pages (T-07d, fifth pass),
+    while every real row starts at the ``FECHA`` column (x0≈62) or right of it.
 
     Every real page carries a vertical run of right-margin text (T-07d,
     fourth pass) that a positioned-row primitive has no way to recognize as
@@ -650,9 +658,12 @@ def _strip_margin_tokens(
     break if it did.
     """
     cutoff = (dolares_edge if dolares_edge is not None else pesos_edge) + _MARGIN_TOLERANCE
+    left_cutoff = left_edge - _MARGIN_TOLERANCE
     cleaned: list[PositionedRow] = []
     for row in rows:
-        tokens = tuple(token for token in row.tokens if token.x0 < cutoff)
+        tokens = tuple(
+            token for token in row.tokens if token.x0 < cutoff and token.x1 > left_cutoff
+        )
         if tokens:
             cleaned.append(PositionedRow(page=row.page, row=row.row, tokens=tokens))
     return tuple(cleaned)
@@ -701,6 +712,20 @@ def _find_brand(rows: Sequence[PositionedRow]) -> CardBrand:
         if "visa" in despaced:
             return CardBrand.VISA
     raise CardLiquidacionParseError("no VISA/MASTERCARD brand marker was found")
+
+
+def _find_left_edge(rows: Sequence[PositionedRow]) -> float:
+    """Return the ``x0`` of the first detail header's ``FECHA`` token: the left
+    edge every real row starts at or right of (see :func:`_strip_margin_tokens`)."""
+    for row in rows:
+        if not _is_detail_header(row):
+            continue
+        for token in row.tokens:
+            if fold(token.text) == "fecha":
+                return token.x0
+    raise CardLiquidacionParseError(
+        "the detail header row carries no FECHA marker; the left edge cannot be derived"
+    )
 
 
 def _find_column_edges(rows: Sequence[PositionedRow]) -> tuple[float, float | None]:
@@ -1181,7 +1206,7 @@ def parse_card_liquidacion(rows: Sequence[PositionedRow]) -> CardLiquidacion:
 
     brand = _find_brand(rows)
     pesos_edge, dolares_edge = _find_column_edges(rows)
-    rows = _strip_margin_tokens(rows, pesos_edge, dolares_edge)
+    rows = _strip_margin_tokens(rows, pesos_edge, dolares_edge, _find_left_edge(rows))
 
     cierre_index = _find_row(rows, _is_cierre_actual)
     if cierre_index is None:

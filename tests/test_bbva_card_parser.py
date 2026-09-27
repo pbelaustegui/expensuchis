@@ -245,6 +245,43 @@ def test_visa_with_page_breaks_reconciles_identically_to_the_split_one() -> None
         assert "pagina(" not in movement.description
 
 
+def _with_left_margin_run(rows: tuple[PositionedRow, ...], x0: float, x1: float):
+    """Insert a vertical left-margin run (single-character rows) right before
+    the charges heading, where the real Visa's third page starts."""
+    out: list[PositionedRow] = []
+    for row in rows:
+        if "".join(token.text for token in row.tokens).lower().startswith("impuestos"):
+            for offset in range(8):
+                token = PositionedToken(x0=x0, x1=x1, text="q")
+                out.append(PositionedRow(page=row.page, row=-1 - offset, tokens=(token,)))
+        out.append(row)
+    assert len(out) == len(rows) + 8
+    return tuple(out)
+
+
+#: The fixture's own detail-header FECHA x0 (fixture geometry is synthetic;
+#: only the edges the parser derives from the header matter).
+_FIXTURE_FECHA_X0 = next(
+    token.x0 for row in VISA_PAGEBREAKS for token in row.tokens if token.text == "FECHA"
+)
+
+
+def test_a_vertical_left_margin_run_is_page_furniture() -> None:
+    """The real cards carry a second vertical run at x≈29-56 on some pages
+    (T-07d, fifth pass), left of the detail header's FECHA (x0≈62); on the
+    real Visa it sits between the last consumption section and the charges."""
+    run = _with_left_margin_run(VISA_PAGEBREAKS, _FIXTURE_FECHA_X0 - 33.0, _FIXTURE_FECHA_X0 - 6.0)
+    parsed = parse_card_liquidacion(run)
+    assert all(check.ok for check in parsed.checks)
+    assert len(parsed.movements) == len(parse_card_liquidacion(VISA_PAGEBREAKS).movements)
+
+
+def test_a_token_reaching_the_fecha_column_is_not_left_margin_furniture() -> None:
+    run = _with_left_margin_run(VISA_PAGEBREAKS, _FIXTURE_FECHA_X0 - 33.0, _FIXTURE_FECHA_X0 - 0.5)
+    with pytest.raises(CardLiquidacionParseError, match="unrecognized line"):
+        parse_card_liquidacion(run)
+
+
 def test_a_page_counter_like_row_with_a_different_shape_still_refuses() -> None:
     rows = _load("fail_page_counter_wrong_shape.txt")
     with pytest.raises(CardLiquidacionParseError, match="unrecognized line"):
