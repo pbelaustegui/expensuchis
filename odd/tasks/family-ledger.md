@@ -705,6 +705,11 @@ market rate. Confirm the exact presentation against a real statement before enco
       if they carry money, but the refusal points at the wrong cause). Assumptions T-08c must check
       against the real file: the header/recap and period line shapes, and whether a generation
       stamp falls inside the table region.
+      **Region warning fixed 2026-09-26** in `24ce845`: the region closes only on one of the five
+      header labels (shared `_header_field` helper) or an anchored footer line, and a movement row
+      outside any region refuses. RED: 3 failed (two refused for the wrong cause via
+      `ReconciliationError`, one silently accepted); GREEN: 701 passed / 2 skipped, ruff clean.
+      Assessed medium, `under_budget` (171 lines): review pending in the slice from `3130fb3`.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
