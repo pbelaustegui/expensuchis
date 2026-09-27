@@ -688,7 +688,9 @@ market rate. Confirm the exact presentation against a real statement before enco
       the neighbouring statement); (2) the dedup key is (account, date, amount, running balance)
       for every row, and the detail's 6-digit id is metadata only; (3) a multi-sub-account
       statement reconciles each block on its own; `$` blocks import, and a `U$S` block is accepted
-      only when `SIN MOVIMIENTOS` (emits nothing), otherwise it refuses, as with Brubank;
+      only when `SIN MOVIMIENTOS` (emits nothing), otherwise it refuses, as with Brubank; the
+      same rule applies to any foreign-currency block (`EUR` was found too), and an unknown
+      currency marker refuses;
       (4) postings: `PAGO CON VISA DEBITO` → `CounterpartyMap` by merchant (case (c));
       `CUENTA VISA`/`CUENTA MASTERCARD` → `Liabilities:BBVA:<person>:Visa`/`:Mastercard`;
       `EXTRACCION` → `Expenses:Efectivo`; `PAGO HABERES` → `Income:<person>:Sueldo`;
@@ -1502,9 +1504,12 @@ every token.
   pdfium refuses them). By markers: Mastercard card (4 pages), Visa card (4 pages), and **two
   `Extracto consolidado` account statements** — no separate "unified" document was found.
 - **The two consolidated statements are different accounts:** one (6 pages) has a single `$`
-  account with activity; the other (4 pages) has **three** sub-accounts (a `$` account, a `$` caja
-  de ahorros and a `U$S` caja de ahorros), all `SIN MOVIMIENTOS`. No CBU is shared, and the months
-  overlap: likely a different holder.
+  account with activity; the other (4 pages) has **three** sub-accounts, all `SIN MOVIMIENTOS`.
+  No CBU is shared and the months overlap; the owner confirmed both statements are P1's.
+- **Sub-account header** (the line right above each table header): `<kind> <currency>
+  <account-no> … FINAL`, with kind `CC`/`CA` and currency `$`, `U$S` or **`EUR`** — the three
+  blocks are `CC $`, `CA EUR` and `CA U$S`. The account number carries separators. A block with
+  no `$`/`U$S` is **not** pesos: currency must be read, never defaulted.
 - **Movement table:** `FECHA | ORIGEN | CONCEPTO | DÉBITO | CRÉDITO | SALDO`, one per sub-account,
   framed by `SALDO ANTERIOR`, rows, `SALDO AL <dd> DE <mes>` and `TOTAL MOVIMIENTOS <debits>
   <credits>`. Rows are `dd/mm` **without a year**, and the period **crosses a month boundary**.
