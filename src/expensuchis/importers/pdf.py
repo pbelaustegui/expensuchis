@@ -13,16 +13,27 @@ everything that does not need it.
 This reader never prints and never writes. It returns the pages' text joined with
 a form feed (``"\\f"``), the separator the parser's line layout understands, and
 the page count.
+
+:func:`read_creation_date` reads the same document's ``CreationDate`` metadata
+field, for a source (BBVA) whose statement never prints its own year and whose
+parser instead takes the caller's clock proxy as an ``anchor`` argument.
 """
 
 from __future__ import annotations
 
+import datetime as dt
+import re
 from pathlib import Path
 
-__all__ = ["read_pdf"]
+__all__ = ["read_creation_date", "read_pdf"]
 
 #: The separator ``read_pdf`` joins pages with; the parser's line layout splits on it.
 PAGE_SEPARATOR = "\f"
+
+#: The PDF date-string format (ISO 32000): ``D:YYYYMMDDHHmmSS`` followed by an
+#: optional UTC-offset suffix this reader does not need. The leading ``D:`` is
+#: itself optional per the spec, so it is not required here.
+_PDF_DATE_RE = re.compile(r"^(?:D:)?(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})")
 
 
 def read_pdf(path: str | Path) -> tuple[str, int]:
@@ -40,3 +51,31 @@ def read_pdf(path: str | Path) -> tuple[str, int]:
         return PAGE_SEPARATOR.join(pages), len(document)
     finally:
         document.close()
+
+
+def read_creation_date(path: str | Path) -> dt.date | None:
+    """Return the PDF's ``CreationDate`` metadata field as a bare date.
+
+    Returns ``None`` when the field is absent, empty or does not match the PDF
+    date-string format well enough to yield a real calendar date -- never
+    raises on malformed metadata, since a missing or unparseable date is the
+    caller's business to refuse (with its own, masked message), not this
+    reader's. The document is closed in a ``finally`` block. Never prints and
+    never writes.
+    """
+    import pypdfium2 as pdfium
+
+    document = pdfium.PdfDocument(str(path))
+    try:
+        raw = document.get_metadata_value("CreationDate")
+    finally:
+        document.close()
+    match = _PDF_DATE_RE.match(raw)
+    if match is None:
+        return None
+    try:
+        return dt.date(
+            int(match.group("year")), int(match.group("month")), int(match.group("day"))
+        )
+    except ValueError:
+        return None

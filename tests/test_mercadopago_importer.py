@@ -621,6 +621,7 @@ def test_get_importers_registers_mercado_pago_without_a_ledger(
         "Provincia",
         "ProvinciaVisa",
         "Brubank",
+        "BBVA",
     ]
 
 

@@ -37,6 +37,15 @@ from beangulp import identify as beangulp_identify
 from beangulp.exceptions import Error as BeangulpIdentifyError
 
 from .importers import get_importers
+from .importers.bbva_importer import (
+    AccountMappingError as _BBVAAccountMappingError,
+)
+from .importers.bbva_importer import (
+    CounterpartyClassificationError as _BBVACounterpartyClassificationError,
+)
+from .importers.bbva_importer import (
+    StatementReadError as _BBVAStatementReadError,
+)
 from .importers.brubank_importer import (
     CounterpartyClassificationError as _BrubankCounterpartyClassificationError,
 )
@@ -149,6 +158,9 @@ _PRESERVED_MESSAGE_TYPES: tuple[type[Exception], ...] = (
     _ProvinciaVisaStatementReadError,
     _BrubankCounterpartyClassificationError,
     _BrubankStatementReadError,
+    _BBVACounterpartyClassificationError,
+    _BBVAStatementReadError,
+    _BBVAAccountMappingError,
 )
 
 #: Fallback statement identifier for `importer-raised` when the statement's bytes
@@ -515,11 +527,12 @@ def _importer_failure_text(exc: Exception) -> str:
     with ``from`` at the call site for local debugging.
 
     :data:`_PRESERVED_MESSAGE_TYPES` is the exception -- each source's own
-    ``CounterpartyClassificationError`` and ``StatementReadError``, whose messages
-    are already built deliberately to be safe (see that constant's docstring).
-    Reducing either to a bare class name would silently break the documented
-    'never defaulted' workflow, or throw away the one safe detail
-    ``StatementReadError`` exists to carry, so both are preserved instead.
+    ``CounterpartyClassificationError`` and ``StatementReadError`` (and, for
+    BBVA, ``AccountMappingError``), whose messages are already built
+    deliberately to be safe (see that constant's docstring). Reducing any of
+    them to a bare class name would silently break the documented 'never
+    defaulted' workflow, or throw away the one safe detail a message exists to
+    carry, so all are preserved instead.
     """
     if isinstance(exc, _PRESERVED_MESSAGE_TYPES):
         return str(exc)

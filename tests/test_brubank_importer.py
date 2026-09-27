@@ -534,8 +534,8 @@ def test_the_brubank_importer_is_registered_without_a_ledger(
     monkeypatch.delenv(ENV_VAR, raising=False)
     importers = get_importers()
     names = [importer.name for importer in importers]
-    assert names == ["MercadoPago", "Provincia", "ProvinciaVisa", "Brubank"]
-    assert isinstance(importers[-1], BrubankImporter)
+    assert names == ["MercadoPago", "Provincia", "ProvinciaVisa", "Brubank", "BBVA"]
+    assert isinstance(importers[3], BrubankImporter)
 
 
 def test_importing_the_importer_package_does_not_import_pypdfium2() -> None:
