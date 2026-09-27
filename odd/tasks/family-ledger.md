@@ -762,8 +762,21 @@ market rate. Confirm the exact presentation against a real statement before enco
       (reliability) **approved**, acknowledged and burned. Advisory follow-ups: the probe's
       shadow join can raise an uncaught parse error (WARNING, `probe_bbva.py:351`); the
       anchor edge paths and a routing failure are untested.
-      **Next:** the BBVA Visa and Mastercard card statements (`PESOS`/`DÓLARES` columns,
-      `C.NN/NN` installments), which need their own reconnaissance.
+      **Card reconnaissance closed 2026-09-27** (masked): see *T-07 card reconnaissance* below.
+      **Owner decisions 2026-09-27 (cards):** (1) the T-06b precedents carry over: `SU PAGO EN
+      PESOS`/`SU PAGO EN USD` emit no entry (the extracto owns the cash movement), a `DÓLARES`
+      column amount posts to the card's USD liability with no `@` price, and each `C.NN/NN`
+      installment posts in the statement where it appears (the "cuotas a vencer" block is
+      informational); (2) the additional cardholder's section posts to the **same liability and
+      the same shared `Expenses:*` categories** as the holder, with transaction metadata
+      `holder: P2`; holder rows carry no `holder` key (absent means the card's owner). Rejected:
+      per-person expense accounts (`Expenses:P2:*`), because `docs/accounting-model.md` keeps
+      `Expenses:<Area>[:<Category>]` household-wide and only this source would split by person;
+      (3) a Mastercard `DÓLARES` amount posts to `Liabilities:BBVA:P1:MastercardUSD`, symmetric
+      with `VisaUSD` (no such row exists yet); (4) charge rows are recognized by shape:
+      `IIBB PERCEP-*` and `DB.RG NNNN` → `Expenses:Impuestos:Percepciones`, `IVA RG NNNN` →
+      `Expenses:Impuestos:IVA`; any other shape refuses. **Planned units:** **T-07d** the card
+      parser (geometry-based, both cards), **T-07e** its wiring, **T-07f** the real-file probe.
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
@@ -1589,6 +1602,39 @@ every token.
   matching the absolute value of one debit `TRANSFERENCIA`. Personal data: key material only,
   redacted, as in Provincia.
 
+### T-07 card reconnaissance (2026-09-27) — the BBVA Visa and Mastercard, mapped without reading them
+
+Same method as T-06b: `pypdfium2` character boxes grouped by `y` into rows, every dump shape-only
+(digits as `9`, letters as `a`) with a whitelist of generic statement words, every quantity compared
+in-process. Scratch scripts lived in the session scratchpad, never in the repository. Only the
+charge-row tax labels were printed unmasked (generic regulatory names, digits still masked).
+
+- **Files:** Visa sha256-12 `bf1d65408024`, Mastercard `a84c56960bcd`, 4 pages each (plus prose).
+  The layout is the processor's `Liquidación`, as in Provincia, but the letterhead differs:
+  `provincia_visa.parse_liquidacion` refuses both (no `(NNNN)` anchor line). Markers present:
+  `SALDO ANTERIOR`, `SU PAGO`, `CIERRE`, `VENCIMIENTO`, `PESOS`, `DÓLARES`, `C.`.
+- **Extraction trap:** character boxes must be read with `loose=True`; tight boxes put `.` and
+  `,` on another row and split every amount.
+- **Columns:** the flat text interleaves the two money columns, so geometry decides. The detail
+  header `FECHA … PESOS DÓLARES` has right edges at x≈502/574; amounts right-align at **x≈500
+  (PESOS)** and **x≈575 (DÓLARES)**. Amounts left of x≈480 belong to the description (the
+  original foreign amount, the tax base) and are never the movement.
+- **Rows:** `dd-mmm-yy` date, description (merchant `*` prefixes, optional `USD <amount>`,
+  optional `C.NN/NN`), a 6-digit comprobante, then one column amount.
+- **Visa sections:** summary box (`SALDO ACTUAL $`/`U$S`, `PAGO MÍNIMO`, limits, rates) → `SALDO
+  ANTERIOR <ARS> <USD>` → `SU PAGO EN PESOS` and `SU PAGO EN USD` (negative) → **two consumption
+  sections**, holder (30 ARS + 11 USD rows) and an additional cardholder (4 ARS rows), each
+  closed by `TOTAL CONSUMOS DE <name> <ARS> <USD>` → `Impuestos, cargos e intereses` (5 rows:
+  `IIBB PERCEP-CABA` ×2, `IVA RG NNNN` ×2, `DB.RG NNNN` ×1, each with a printed rate and base)
+  → `SALDO ACTUAL <ARS> <USD>` (identical to the summary box). 5 rows carry `C.NN/NN`; all 8
+  `USD`-labelled rows land in DÓLARES, plus 3 unlabelled foreign-currency rows.
+- **Mastercard:** 3 ARS consumption rows, no USD row, no charge rows.
+- **Reconciliation (in-process, partial):** Visa USD reconciles end to end (opening + payment +
+  consumption = `SALDO ACTUAL`); the additional cardholder's ARS sum equals its `TOTAL`. Still
+  open for T-07d: the holder's ARS sum misses by what looks like one wrapped row (one undated
+  line carries a column amount, one dated row carries none), and the Mastercard's section
+  detection was not closed by the scratch script.
+
 ### T-08 reconnaissance (2026-09-26) — the Brubank account, mapped without reading it
 
 Same method as T-06b: shape-only dumps, every quantity compared in-process, scratch scripts outside
@@ -1909,7 +1955,8 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    suspected prompt injection. It was abandoned (`operator_disposition`, no results captured), and
    its read-only candidate view was deleted by hand because it held copies of `sample/*.beancount`
    that the privacy pre-commit refuses. That is a transport failure, not an approval: re-review
-   from `a8bc31e` once the relay works. **Next: the BBVA card statements;** the account side (T-07a/b/c) is delivered and passes
+   from `a8bc31e` once the relay works. **Next: T-07d, the BBVA card parser** (reconnaissance and owner decisions recorded in the
+   T-07 entry); the account side (T-07a/b/c) is delivered and passes
    against the real files, see the T-07 entry. Still open from T-08: the
    probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
