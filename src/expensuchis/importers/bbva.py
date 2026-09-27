@@ -224,7 +224,9 @@ _LEGAL_LINE_TOKENS = ("movimientos", "de iva", "credito")
 _TRANSFER_HEADER_RE = re.compile(r"^fecha\s+\S+.*\bnro\b.*\bcuenta\s+origen$")
 _TRANSFER_ROW_RE = re.compile(
     rf"^(?P<dd>\d{{2}})/(?P<mm>\d{{2}})\s+(?P<cuit>\d{{11}})\s+(?:\S+\s+)?"
-    rf"(?P<account1>\d{{10}})\s+.+?\s+\$\s+(?P<amount>{_ARS_AMOUNT})\s+\S+\s+\$\s+\d{{10}}$"
+    rf"(?P<account1>\d{{10}})\s+.+?\s+\$\s+(?P<amount>{_ARS_AMOUNT})\s+\S+\s+\$\s+"
+    # The real statement prints the origin account as ddd-dddddd/d (T-07c probe).
+    rf"(?:\d{{10}}|\d{{3}}-\d{{6}}/\d)$"
 )
 
 _DETALLE_LINE = "detalle"
@@ -467,8 +469,11 @@ def _parse_debit_card_details(
 
 # --------------------------------------------------------------------- concept classification
 
-_CARD_ACCOUNT_RE = re.compile(r"^cuenta visa\s+(?P<account>\d{14})$")
-_MASTERCARD_ACCOUNT_RE = re.compile(r"^cuenta mastercard\s+(?P<account>\d{14})$")
+# The real statement prints ``NRO.`` before the card account and a trailing
+# detail after ``PAGO HABERES`` (T-07c probe, 2026-09-27).
+_CARD_ACCOUNT_RE = re.compile(r"^cuenta visa\s+(?:nro\.\s+)?(?P<account>\d{14})$")
+_MASTERCARD_ACCOUNT_RE = re.compile(r"^cuenta mastercard\s+(?:nro\.\s+)?(?P<account>\d{14})$")
+_SALARY_RE = re.compile(r"^pago haberes(?:\s+\S+)*$")
 _TRANSFER_OUT_RE = re.compile(
     r"^transferencia(?:\s+(?P<word>\S+)(?:\s+(?P<digits6>\d{6})\s+\d)?)?$"
 )
@@ -486,7 +491,7 @@ def _classify_concept(
         kind, expected_debit, forbids_origin = MovementKind.MASTERCARD_SETTLEMENT, True, True
     elif concept == "extraccion elec+cash":
         kind, expected_debit, forbids_origin = MovementKind.CASH_WITHDRAWAL, True, False
-    elif concept == "pago haberes":
+    elif _SALARY_RE.match(concept) is not None:
         kind, expected_debit, forbids_origin = MovementKind.SALARY, False, False
     elif concept == "intereses ganados":
         kind, expected_debit, forbids_origin = MovementKind.INTEREST, False, True

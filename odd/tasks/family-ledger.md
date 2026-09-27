@@ -745,7 +745,25 @@ market rate. Confirm the exact presentation against a real statement before enco
       `_PRESERVED_MESSAGE_TYPES` (`pipeline.py:161`), so a bad path reaches the CLI as a bare
       class name; the empty-name refusal for a received transfer is worded as a parse error;
       misleading fixture labels and a duplicated counterparty mapping in the tests.
-      **Next: T-07c** (the real-file probe).
+      **T-07c delivered 2026-09-27** — `tools/probe_bbva.py` + `tests/test_probe_bbva.py`
+      (`c984935`, 11 tests; env var `EXPENSUCHIS_BBVA_STATEMENTS`; masked aggregates only; a card
+      PDF reports `not an extracto consolidado` and does not fail the run). The real statements
+      live at `statements/Bbva/<person>/` behind a symlink (`find -L`). The first real run refused
+      the active statement three times, each on a row shape the synthetic fixtures had not
+      modelled: `CUENTA VISA|MASTERCARD NRO. <account>`, a trailing word and reference after
+      `PAGO HABERES`, and the sent-transfer origin account printed as `ddd-dddddd/d`. All three
+      fixed in `73f39f3` (RED: 4 failed; GREEN: 850 passed / 4 skipped, `ruff` clean); the
+      shorter forms stay accepted. **Real run, exit 0:** the 3-block quiescent statement routes
+      and passes every check; the active 6-page statement yields 36 movements (25 purchases,
+      2 Visa and 1 Mastercard settlements, 1 withdrawal, 1 salary, 1 interest, 3 sent and 2
+      received transfers), 25/25 debit-detail joins (1 detail row outside the window, ignored),
+      3/3 sent-transfer joins, all nine checks ok, anchor gap 1 day. Assessed medium,
+      `slice_budget_reached` (823 lines); owner granted; native review `review-3bd6572a1c516307`
+      (reliability) **approved**, acknowledged and burned. Advisory follow-ups: the probe's
+      shadow join can raise an uncaught parse error (WARNING, `probe_bbva.py:351`); the
+      anchor edge paths and a routing failure are untested.
+      **Next:** the BBVA Visa and Mastercard card statements (`PESOS`/`DÓLARES` columns,
+      `C.NN/NN` installments), which need their own reconnaissance.
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
@@ -1891,7 +1909,8 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    suspected prompt injection. It was abandoned (`operator_disposition`, no results captured), and
    its read-only candidate view was deleted by hand because it held copies of `sample/*.beancount`
    that the privacy pre-commit refuses. That is a transport failure, not an approval: re-review
-   from `a8bc31e` once the relay works. **Next: T-07c (BBVA real-file probe);** T-07a/b are delivered, see the T-07 entry. Still open from T-08: the
+   from `a8bc31e` once the relay works. **Next: the BBVA card statements;** the account side (T-07a/b/c) is delivered and passes
+   against the real files, see the T-07 entry. Still open from T-08: the
    probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
