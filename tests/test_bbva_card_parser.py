@@ -17,15 +17,20 @@ irregular, non-round amounts throughout -- a plausible Spanish name or a
 round figure is exactly what the leak guard exists to catch.
 
 Coverage is two-sided, like the sibling parsers'. Half proves the parser is a
-*reader*: the two-section Visa fixture exercises both currencies, an
-installment marker, all three charge shapes and both payment rows; the
-Mastercard fixture proves a single section and an absent charges section both
-work, and that a document with no ``DÓLARES`` column refuses any USD amount.
-The other half proves it is a *gate*: each failing fixture breaks exactly one
-reconciliation check (mirroring ``provincia_visa``'s design), and a handful of
-structural fixtures prove the strictness rules -- notably that the
-reconnaissance's documented "known unknown" (an undated line carrying a
-column amount inside a consumption section) is refused, never guessed at.
+*reader*: the two-section Visa fixture exercises both currencies, dated
+payment and charge rows, an installment marker, all three charge shapes, both
+payment rows, and a summary box whose early label-only ``SALDO ACTUAL
+$``/``SALDO ACTUAL U$S`` pair carries deliberately *wrong* values -- proving
+they are furniture the parser never reads, not merely values it happens to
+agree with. The Mastercard fixture proves a single consumption section and an
+absent charges section both work, and that Mastercard's own ``DÓLARES``
+column (always present, always near-zero) never produces a USD movement
+because no Mastercard row's amount ever lands in it. The other half proves it
+is a *gate*: each failing fixture breaks exactly one reconciliation check
+(mirroring ``provincia_visa``'s design), and a handful of structural fixtures
+prove the strictness rules -- notably that the reconnaissance's documented
+"known unknown" (an undated line carrying a column amount inside a
+consumption section) is refused, never guessed at.
 
 Masking is behaviour, not politeness: a test walks every failure and asserts
 no diagnostic echoes a merchant, a comprobante or an amount.
@@ -123,6 +128,8 @@ STRUCTURAL_FIXTURES: list[str] = [
     "fail_unrecognized_consumption_line.txt",
     "fail_ambiguous_column.txt",
     "fail_no_brand.txt",
+    "fail_no_cierre_date.txt",
+    "fail_no_charges_header.txt",
 ]
 
 #: Tokens a diagnostic must never echo: merchants, comprobantes and amounts
@@ -194,13 +201,30 @@ def test_visa_brand_and_close_date_and_balances() -> None:
     assert liquidacion.detail_saldo_actual_usd == Decimal("304.14")
 
 
-def test_mastercard_brand_and_no_usd_column() -> None:
+def test_mastercard_brand_and_near_zero_usd_balances() -> None:
+    """Mastercard prints a DÓLARES column throughout (T-07d real-file correction),
+    but it is always near-zero and no Mastercard row's amount ever lands in
+    it, so every movement still comes out ARS."""
     liquidacion = parse_card_liquidacion(MASTERCARD_FULL)
     assert liquidacion.brand is CardBrand.MASTERCARD
-    assert liquidacion.opening_usd is None
-    assert liquidacion.summary_saldo_actual_usd is None
-    assert liquidacion.detail_saldo_actual_usd is None
+    assert liquidacion.opening_usd == Decimal("0.00")
+    assert liquidacion.summary_saldo_actual_usd == Decimal("0.00")
+    assert liquidacion.detail_saldo_actual_usd == Decimal("0.00")
     assert all(movement.currency is Currency.ARS for movement in liquidacion.movements)
+
+
+def test_mastercard_early_split_saldo_actual_rows_are_ignored() -> None:
+    """The fixture's early label-only ``SALDO ACTUAL $``/``U$S`` pair carries
+    deliberately wrong values; parsing must use the later combined row."""
+    liquidacion = parse_card_liquidacion(MASTERCARD_FULL)
+    assert liquidacion.summary_saldo_actual_ars != Decimal("5439.10") + Decimal("111.00")
+    assert liquidacion.summary_saldo_actual_ars == liquidacion.detail_saldo_actual_ars
+
+
+def test_visa_early_split_saldo_actual_rows_are_ignored() -> None:
+    liquidacion = parse_card_liquidacion(VISA_FULL)
+    assert liquidacion.summary_saldo_actual_ars == liquidacion.detail_saldo_actual_ars
+    assert liquidacion.summary_saldo_actual_usd == liquidacion.detail_saldo_actual_usd
 
 
 def test_visa_movements_cover_purchase_payment_and_both_charge_classes() -> None:
@@ -213,13 +237,17 @@ def test_visa_movements_cover_purchase_payment_and_both_charge_classes() -> None
     # IIBB PERCEP-* and DB.RG NNNN are both PERCEPCION; IVA RG NNNN is IVA.
     assert sum(1 for c in charges if c.charge_class is ChargeClass.PERCEPCION) == 2
     assert sum(1 for c in charges if c.charge_class is ChargeClass.IVA) == 1
-    assert all(c.when is None and c.comprobante == "" for c in charges)
+    # Confirmed against the real files (T-07d): charge rows are dated, unlike
+    # the first draft's (wrong) assumption.
+    assert all(c.when == dt.date(2026, 3, 28) and c.comprobante == "" for c in charges)
 
     payments = [m for m in liquidacion.movements if m.kind is MovementKind.PAYMENT]
     assert len(payments) == 2
     assert {p.currency for p in payments} == {Currency.ARS, Currency.USD}
     assert all(p.amount < 0 for p in payments)  # kept as printed: a trailing minus is a credit
-    assert all(p.when is None for p in payments)
+    # Confirmed against the real files (T-07d): the detail's payment rows are
+    # dated, unlike the summary box's own undated restatement (never parsed).
+    assert all(p.when == dt.date(2026, 3, 22) for p in payments)
 
     usd_purchase = next(
         m
@@ -304,6 +332,21 @@ def test_the_known_unknown_wrapped_row_is_refused_not_guessed() -> None:
 def test_an_amount_between_the_two_columns_is_refused() -> None:
     rows = _load("fail_ambiguous_column.txt")
     with pytest.raises(CardLiquidacionParseError, match="neither derived column edge"):
+        parse_card_liquidacion(rows)
+
+
+def test_cierre_actual_without_a_following_date_row_is_refused() -> None:
+    """Confirmed against the real files: CIERRE ACTUAL's date is on the next
+    row, never the same one. A missing next-row date is a structural refusal,
+    not a same-row fallback."""
+    rows = _load("fail_no_cierre_date.txt")
+    with pytest.raises(CardLiquidacionParseError, match="CIERRE ACTUAL"):
+        parse_card_liquidacion(rows)
+
+
+def test_charges_section_without_its_own_header_is_refused() -> None:
+    rows = _load("fail_no_charges_header.txt")
+    with pytest.raises(CardLiquidacionParseError, match="its own detail header"):
         parse_card_liquidacion(rows)
 
 

@@ -28,54 +28,95 @@ right edges from the document's own **detail header row**
 neither derived edge (or near both) is refused rather than guessed
 (:func:`_classify_column`).
 
+Column geometry is used **only** where it is the sole signal available: a
+single-amount movement row (a purchase, a payment or a charge), where nothing
+else on the row says which currency it is. A "totals" row that always prints
+its ARS figure before its USD figure (``SALDO ANTERIOR``, a section's
+``TOTAL CONSUMOS`` and the closing ``SALDO ACTUAL``) is read by **reading
+order** instead (:func:`_row_ordered_amounts`): the first amount-shaped token
+is ARS, the second -- if present -- is USD. This is deliberately *not*
+column-based, because the T-07d real-file probe found that the **summary
+box**'s own totals rows sit at different x positions than the detail's (the
+edges are still derived from the detail header only, never from the summary
+box), so trusting reading order for these two-amount rows is both simpler and
+safer than trusting geometry where geometry is not needed.
+
 An amount printed to the **left** of the columns -- an inline original
 foreign-currency amount or a perception's base, both observed in the real
-document -- is never mistaken for the movement: only the row's **last**
-token is ever read as the movement amount (see "Row grammar" below), so an
-earlier amount-shaped token is always kept as plain description text.
+document -- is never mistaken for the movement: only a single-amount row's
+**last** token is ever read as the movement amount (see "Row grammar" below),
+so an earlier amount-shaped token is always kept as plain description text.
 
 Document order
 ---------------
 
-::
+The real document (T-07d real-file probe, 2026-09-27) has a **summary box**
+(page 2 in the real files) whose only load-bearing rows are the close date,
+the opening balance and its own closing balance; everything else in it is
+furniture this parser skips without reading, followed by a **detail**
+section that carries every actual, dated movement::
 
     (brand marker: VISA or MASTERCARD, anywhere)
-    CIERRE ACTUAL <dd-mmm-yy>                          -- the close date
-    ... summary box furniture (PAGO MÍNIMO, limits, rates) ...
-    SALDO ACTUAL <ARS> [<USD>]                         -- the summary figure
-    SALDO ANTERIOR <ARS> [<USD>]                       -- opening balances
-    SU PAGO EN PESOS <amount>                          -- zero or more
-    SU PAGO EN USD <amount>                            --   payment rows
-    FECHA ... PESOS [DÓLARES]                          -- detail header:
-      <consumption rows>                                  opens a section
-    TOTAL CONSUMOS DE <name> <ARS> [<USD>]             -- closes it
-    [ FECHA ... PESOS [DÓLARES]                        -- a second section
-      <consumption rows>                                  (the additional
-      TOTAL CONSUMOS DE <name> <ARS> [<USD>]           --  cardholder's) ]
-    [ Impuestos, cargos e intereses                    -- charges heading
-      <charge rows> ]                                     (both optional)
-    SALDO ACTUAL <ARS> [<USD>]                         -- the detail figure
-    ... prose, "cuotas a vencer" ...                   -- ignored
+    CIERRE ACTUAL
+    <dd-mmm-yy>                                  -- the close date (next row)
+    ... summary-box furniture: VENCIMIENTO ACTUAL date, a *label-only*
+        "SALDO ACTUAL $"/"SALDO ACTUAL U$S" pair whose values sit on the
+        FOLLOWING row each, PAGO MÍNIMO, limits ...
+    Pesos Dólares                                -- a mini header (no FECHA)
+    SALDO ANTERIOR <ARS> [<USD>]                 -- opening balances (one row)
+    ... more summary-box furniture: an undated restatement of the payments,
+        each section's TOTAL CONSUMOS and (Visa) the charge rows, none of
+        which this parser reads ...
+    SALDO ACTUAL <ARS> [<USD>]                   -- the summary figure (one
+                                                     row, both amounts on it --
+                                                     what distinguishes it from
+                                                     the earlier label-only pair)
+    ... more furniture: rate rows and a handful of other closing/due-date
+        labels, each followed by its own date on the next row ...
+    DETALLE
+    ... a furniture line ...
+    FECHA ... NRO. ... PESOS [DÓLARES]           -- detail header (payments)
+    <dd-mmm-yy> SU PAGO EN PESOS <amount>        -- dated; zero or more
+    <dd-mmm-yy> SU PAGO EN USD <amount>          --   payment rows
+    Consumos <name>                              -- section title (skipped)
+    FECHA ... NRO. ... PESOS [DÓLARES]           -- detail header: opens a
+      <consumption rows>                            consumption section
+    TOTAL CONSUMOS DE <name> <ARS> [<USD>]       -- closes it
+    [ Consumos <name>                            -- a second section title
+      FECHA ... NRO. ... PESOS [DÓLARES]            (the additional
+      <consumption rows>                              cardholder's)
+      TOTAL CONSUMOS DE <name> <ARS> [<USD>] ]
+    [ Impuestos, cargos e intereses              -- charges heading
+      FECHA ... PESOS [DÓLARES]                     (no NRO. on this one)
+      <dd-mmm-yy> <charge row> ]                  -- dated; both optional
+    SALDO ACTUAL <ARS> [<USD>]                   -- the detail figure
+    ... prose, "cuotas a vencer" ...             -- ignored
 
 Everything before the first detail header, and between a section's
 ``TOTAL CONSUMOS`` and the next boundary, is scanned leniently: an
 unrecognized row there is furniture (mirrors ``bbva.py``'s "outside a
-region" leniency). **Inside** a consumption or charges section every row must
-be a recognized shape, its section's closing marker, or -- for the charges
-zone only -- the one recognized heading line; anything else refuses with a
-masked diagnostic (the Brubank/T-08 lesson: never skip silently). This is
-also how the reconnaissance's documented "known unknown" is handled: the real
-Visa holder section carries one undated line with a column amount, very
+region" leniency) -- this is how the summary box's own undated restatement of
+the payments/totals/charges is skipped without ever being parsed: this
+parser never looks at it beyond its close date, its opening balance and its
+own closing ``SALDO ACTUAL``. A **section title** row (``Consumos <name>``)
+is also furniture: its folded first token is ``consumos``, and the name that
+follows -- of unknown, variable length -- is never read. **Inside** a
+consumption or charges section every row must be a recognized shape, its
+section's closing marker, or -- for the charges zone only -- the one
+recognized heading line plus its own detail header; anything else refuses
+with a masked diagnostic (the Brubank/T-08 lesson: never skip silently). This
+is also how the reconnaissance's documented "known unknown" is handled: the
+real Visa holder section carries one undated line with a column amount, very
 likely a wrapped description. This parser does **not** guess a merge rule for
-it -- an undated row inside a section refuses, by the same general rule, until
-the real-file probe (T-07f) shows the actual shape.
+it -- an undated row inside a consumption section refuses, by the same
+general rule.
 
 There are between one and two consumption sections. The **second** one, when
 present, is the additional cardholder's -- :attr:`Movement.is_additional_holder`
 marks every movement inside it. The holder's own name and the additional
-cardholder's are never read: :func:`_row_two_column_amounts` only ever
-extracts amount-shaped tokens from a ``TOTAL CONSUMOS DE <name>`` row, so the
-name -- of unknown, variable length -- is skipped without ever being
+cardholder's are never read: :func:`_row_ordered_amounts` only ever extracts
+amount-shaped tokens from a ``TOTAL CONSUMOS DE <name>`` row (and a section
+title is skipped by its own leading token only), so the name is never
 inspected, let alone stored or echoed.
 
 Row grammar
@@ -90,19 +131,19 @@ there is the description, kept verbatim (it may itself contain an inline
 ``USD <amount>`` pair or a lone ``*`` merchant marker -- never parsed as the
 movement, precisely because it is not the row's last token).
 
-A **charge row** (post-total, no date and no comprobante): ``<description
-words...> <amount>``, classified **by shape**, never by trusting a label
-alone (owner decision, 2026-09-27): ``IIBB PERCEP-*`` or ``DB.RG NNNN`` is a
-:attr:`ChargeClass.PERCEPCION`; ``IVA RG NNNN`` is a
+A **charge row** (post-total, **dated**, no comprobante): ``<dd-mmm-yy date>
+<description words...> <amount>``, classified **by shape**, never by
+trusting a label alone (owner decision, 2026-09-27): ``IIBB PERCEP-*`` or
+``DB.RG NNNN`` is a :attr:`ChargeClass.PERCEPCION`; ``IVA RG NNNN`` is a
 :attr:`ChargeClass.IVA`; any other shape refuses the document.
 
-A **payment row**: ``SU PAGO EN PESOS <amount>`` or ``SU PAGO EN USD
-<amount>``, kept as a :attr:`MovementKind.PAYMENT` movement -- **never
-dropped by this parser** (the importer drops it, mirroring the Provincia
-precedent: the extracto owns the cash movement, so reconciliation here still
-needs the payment counted). Amounts are kept **as printed**: a trailing
-minus is a credit, exactly as :mod:`expensuchis.importers.provincia_visa`
-keeps its own payment rows.
+A **payment row** (**dated**, in the detail): ``<dd-mmm-yy date> SU PAGO EN
+PESOS <amount>`` or ``<dd-mmm-yy date> SU PAGO EN USD <amount>``, kept as a
+:attr:`MovementKind.PAYMENT` movement -- **never dropped by this parser**
+(the importer drops it, mirroring the Provincia precedent: the extracto owns
+the cash movement, so reconciliation here still needs the payment counted).
+Amounts are kept **as printed**: a trailing minus is a credit, exactly as
+:mod:`expensuchis.importers.provincia_visa` keeps its own payment rows.
 
 Reconciliation
 ---------------
@@ -130,22 +171,35 @@ never of the parsed result.
 Open assumptions for the real-file probe (T-07f)
 --------------------------------------------------
 
-The reconnaissance did not pin down every shape used here; each of the
-following is a documented, testable choice, not a guess smuggled in as fact:
+The document order above is now confirmed against both real files (T-07d,
+2026-09-27); the assumptions still open are narrower:
 
-* ``CIERRE ACTUAL`` is followed directly (within two tokens) by a
-  ``dd-mmm-yy`` date, the same shape consumption rows use.
-* The summary box's ``SALDO ACTUAL`` and ``SALDO ANTERIOR`` are each **one**
-  row carrying one or two column-amounts (mirroring the detail's own
-  ``SALDO ACTUAL`` row), not two separate per-currency lines.
-* Neither ``SU PAGO EN *`` rows nor charge rows carry their own date (unlike
-  Provincia's payment row); both are recorded with ``when=None``.
-* A Mastercard document's detail header omits the ``DÓLARES`` token
-  entirely (rather than printing it over an empty column) -- when it does,
-  :data:`_dolares_edge` is ``None`` and any amount is refused as
-  :attr:`Currency.USD` (``_classify_column``).
+* ``CIERRE ACTUAL`` is followed on the **next row** by a ``dd-mmm-yy`` date
+  (confirmed); this parser does not tolerate the date sharing the label's
+  own row, since that shape has not been observed.
+* Reading order (not geometry) is trusted for ``SALDO ANTERIOR``, a
+  section's ``TOTAL CONSUMOS`` and both ``SALDO ACTUAL`` rows (ARS token
+  first, USD token second when present) -- confirmed for the amounts
+  themselves, but the exact x position of the **summary box**'s own
+  totals rows relative to the detail-derived column edges is not: if a
+  future statement prints a single-amount movement row inside the summary
+  box (none is currently read there), this parser would need to re-derive
+  edges for that zone rather than reusing the detail's.
+  This risk does not affect the fixtures or checks above, because the
+  summary box's own movement-shaped rows (payments, charges) are never
+  parsed by this module -- they are furniture, skipped in full.
+* The real Visa file's ``SU PAGO EN USD`` row was observed, in **flat**
+  text, glued to the following page's footer; positioned rows (grouped by
+  measured y, not by line breaks) are expected not to reproduce that
+  artifact, but this parser does not defend against a positioned row that
+  is unexpectedly split mid-row by a coincidental y collision -- such a
+  split would surface as an ordinary structural refusal (a payment row
+  missing its trailing amount), never a silent merge guess.
 * The one recognized charges-section heading is a line containing the word
-  ``impuestos``; any other heading text is unrecognized and refuses.
+  ``impuestos``; any other heading text is unrecognized and refuses. The
+  charges section's own detail header (required right after the heading)
+  never carries a ``NRO.`` token, unlike every other detail header in the
+  document; this parser does not require its absence, only tolerates it.
 """
 
 from __future__ import annotations
@@ -293,15 +347,15 @@ class ChargeClass(Enum):
 class Movement:
     """One reconciled movement, with the position it came from for diagnostics.
 
-    ``when`` is ``None`` for :attr:`MovementKind.PAYMENT` and
-    :attr:`MovementKind.CHARGE` rows (neither is observed to carry its own
-    date -- see the module docstring's open assumptions). ``comprobante`` is
-    the empty string for those two kinds; ``installment_number``/``_total``
-    are ``None`` unless the row carried a ``C.NN/NN`` marker.
-    ``is_additional_holder`` is ``True`` only for a movement inside the
-    **second** consumption section -- the additional cardholder's -- and is
-    always ``False`` for a payment or a charge. The cardholder's own name is
-    never read, let alone stored here.
+    ``when`` is populated for every kind: a purchase's date comes from its
+    own row, and -- confirmed against the real files (T-07d) -- so do a
+    payment's and a charge's. ``comprobante`` is the empty string for
+    :attr:`MovementKind.PAYMENT` and :attr:`MovementKind.CHARGE` (neither
+    carries one); ``installment_number``/``_total`` are ``None`` unless the
+    row carried a ``C.NN/NN`` marker. ``is_additional_holder`` is ``True``
+    only for a movement inside the **second** consumption section -- the
+    additional cardholder's -- and is always ``False`` for a payment or a
+    charge. The cardholder's own name is never read, let alone stored here.
     """
 
     kind: MovementKind
@@ -347,12 +401,13 @@ class CardLiquidacionParseError(ValueError):
     """The rows are not a parsable BBVA card ``Liquidación``.
 
     Structural failure, distinct from :class:`ReconciliationError`: the brand,
-    the ``CIERRE ACTUAL`` row, the detail header (and so the column edges),
-    ``SALDO ANTERIOR``, a consumption section's ``TOTAL CONSUMOS`` line or the
-    detail ``SALDO ACTUAL`` line is missing or malformed; a row inside a
-    section matches no recognized shape; an amount is malformed; or an
-    amount's right edge lands near neither derived column edge (or near
-    both). The message never echoes statement text.
+    the ``CIERRE ACTUAL`` row (and the date on its following row),
+    ``SALDO ANTERIOR``, the summary or detail ``SALDO ACTUAL`` line, the
+    detail header (and so the column edges), a consumption section's
+    ``TOTAL CONSUMOS`` line, or the charges section's own header is missing
+    or malformed; a row inside a section matches no recognized shape; an
+    amount is malformed; or an amount's right edge lands near neither derived
+    column edge (or near both). The message never echoes statement text.
     """
 
 
@@ -434,7 +489,19 @@ def _is_saldo_anterior(row: PositionedRow) -> bool:
 
 
 def _is_saldo_actual(row: PositionedRow) -> bool:
-    return _folded_prefix(row, 2) == ("saldo", "actual")
+    """Whether ``row`` is a ``SALDO ACTUAL`` row that carries its own amount.
+
+    The summary box prints ``SALDO ACTUAL $``/``SALDO ACTUAL U$S`` as two
+    **label-only** rows (their values sit on the row right after each), then
+    later a **combined** ``SALDO ACTUAL <ars> [<usd>]`` row with both amounts
+    on itself -- that combined row is the one this parser reads (for the
+    summary figure, and again for the detail's own closing row); requiring an
+    amount on the row is what tells the two shapes apart without needing to
+    know which one comes first.
+    """
+    return _folded_prefix(row, 2) == ("saldo", "actual") and any(
+        _is_amount_token(token.text) for token in row.tokens
+    )
 
 
 def _is_cierre_actual(row: PositionedRow) -> bool:
@@ -445,21 +512,29 @@ def _is_charges_heading(row: PositionedRow) -> bool:
     return any("impuestos" in folded for folded in _folded_tokens(row))
 
 
-def _parse_cierre_actual(row: PositionedRow) -> dt.date:
-    """Parse the ``CIERRE ACTUAL <dd-mmm-yy>`` row into its close date.
+def _is_consumos_title(row: PositionedRow) -> bool:
+    """A ``Consumos <name>`` section title -- furniture; the name is never read."""
+    folded = _folded_tokens(row)
+    return bool(folded) and folded[0] == "consumos"
 
-    The date is the first token within the row's next three tokens (after
-    ``CIERRE ACTUAL``) that matches the ``dd-mmm-yy`` shape -- tolerant of one
-    stray punctuation mark in between, without trusting an exact offset.
+
+def _parse_cierre_actual_date(rows: Sequence[PositionedRow], cierre_index: int) -> dt.date:
+    """Parse the close date from the row right after ``CIERRE ACTUAL``.
+
+    Confirmed against the real files (T-07d): the label and its ``dd-mmm-yy``
+    value are on **separate** rows, unlike a consumption row's inline date.
     """
-    date_token = next(
-        (token for token in row.tokens[2:5] if _DATE_RE.match(token.text) is not None), None
-    )
-    if date_token is None:
+    if cierre_index + 1 >= len(rows):
         raise CardLiquidacionParseError(
-            f"page {row.page}, row {row.row}: the CIERRE ACTUAL row carries no dd-mmm-yy date"
+            "the CIERRE ACTUAL row has no following row to carry its date"
         )
-    return _parse_date_token(date_token.text, row.page, row.row)
+    date_row = rows[cierre_index + 1]
+    if not date_row.tokens or _DATE_RE.match(date_row.tokens[0].text) is None:
+        raise CardLiquidacionParseError(
+            f"page {date_row.page}, row {date_row.row}: the row after CIERRE ACTUAL carries "
+            f"no dd-mmm-yy date"
+        )
+    return _parse_date_token(date_row.tokens[0].text, date_row.page, date_row.row)
 
 
 def _find_row(
@@ -482,6 +557,13 @@ def _find_brand(rows: Sequence[PositionedRow]) -> CardBrand:
 
 
 def _find_column_edges(rows: Sequence[PositionedRow]) -> tuple[float, float | None]:
+    """Derive the PESOS/DÓLARES right edges from the document's own detail header.
+
+    The **first** row carrying both ``FECHA`` and ``PESOS`` tokens is always
+    a detail header (the summary box's own ``Pesos Dólares`` mini header
+    carries no ``FECHA`` token, so it never matches -- see the module
+    docstring, "Summary-box values sit elsewhere").
+    """
     for row in rows:
         if not _is_detail_header(row):
             continue
@@ -516,42 +598,26 @@ def _classify_column(
     )
 
 
-def _row_two_column_amounts(
-    row: PositionedRow, pesos_edge: float, dolares_edge: float | None, field: str
-) -> tuple[Decimal, Decimal | None]:
-    """Extract the (ARS, USD-or-None) amounts of a ``SALDO``/``TOTAL`` row.
+def _row_ordered_amounts(row: PositionedRow, field: str) -> tuple[Decimal, Decimal | None]:
+    """Extract the (ARS, USD-or-None) amounts of a ``SALDO``/``TOTAL`` row **by reading order**.
 
-    Scans **every** token for an amount shape; non-amount tokens (labels, a
-    cardholder's name of unknown length) are silently skipped, never read.
-    This is deliberate, not a shortcut: it is what lets ``TOTAL CONSUMOS DE
-    <name>`` be parsed without ever inspecting the name (see the module
-    docstring).
+    These "totals" rows always print their ARS figure before their USD
+    figure (confirmed by every observed shape, in the summary box and in the
+    detail alike), so the first amount-shaped token is ARS and the second,
+    when present, is USD -- no column geometry needed, which sidesteps the
+    summary box's own amount columns sitting at a different x than the
+    detail's (see the module docstring). Non-amount tokens (labels, a
+    cardholder's name of unknown length) are silently skipped, never read:
+    this is what lets ``TOTAL CONSUMOS DE <name>`` be parsed without ever
+    inspecting the name.
     """
-    ars: Decimal | None = None
-    usd: Decimal | None = None
-    found_any = False
-    for token in row.tokens:
-        if not _is_amount_token(token.text):
-            continue
-        found_any = True
-        currency = _classify_column(token, pesos_edge, dolares_edge, row.page, row.row)
-        value = _parse_amount(token.text, row.page, row.row, field)
-        if currency is Currency.ARS:
-            if ars is not None:
-                raise CardLiquidacionParseError(
-                    f"page {row.page}, row {row.row}: the {field} row carries two ARS amounts"
-                )
-            ars = value
-        else:
-            if usd is not None:
-                raise CardLiquidacionParseError(
-                    f"page {row.page}, row {row.row}: the {field} row carries two USD amounts"
-                )
-            usd = value
-    if not found_any or ars is None:
+    amounts = [token for token in row.tokens if _is_amount_token(token.text)]
+    if not amounts or len(amounts) > 2:
         raise CardLiquidacionParseError(
-            f"page {row.page}, row {row.row}: the {field} row carries no ARS amount"
+            f"page {row.page}, row {row.row}: the {field} row does not carry one or two amounts"
         )
+    ars = _parse_amount(amounts[0].text, row.page, row.row, field)
+    usd = _parse_amount(amounts[1].text, row.page, row.row, field) if len(amounts) == 2 else None
     return ars, usd
 
 
@@ -638,10 +704,24 @@ def _parse_purchase_row(
 def _parse_payment_row(
     row: PositionedRow, pesos_edge: float, dolares_edge: float | None
 ) -> Movement | None:
-    folded = tuple(_folded_tokens(row)[:4])
+    """Parse a (dated) ``SU PAGO EN PESOS``/``SU PAGO EN USD`` row, or ``None`` if it is neither.
+
+    Confirmed against the real files (T-07d): the detail's payment row is
+    dated, unlike the summary box's own undated restatement (which this
+    parser never reaches -- see the module docstring). The leading date is
+    tolerated but not required, so an undated payment row -- if ever
+    observed -- still parses, with ``when=None``.
+    """
+    tokens = list(row.tokens)
+    when: dt.date | None = None
+    offset = 0
+    if tokens and _DATE_RE.match(tokens[0].text) is not None:
+        when = _parse_date_token(tokens[0].text, row.page, row.row)
+        offset = 1
+    folded = tuple(fold(token.text) for token in tokens[offset : offset + 4])
     if folded != _PAYMENT_PESOS_PREFIX and folded != _PAYMENT_USD_PREFIX:
         return None
-    rest = list(row.tokens)[4:]
+    rest = tokens[offset + 4 :]
     if not rest:
         raise CardLiquidacionParseError(
             f"page {row.page}, row {row.row}: a payment row carries no amount"
@@ -660,7 +740,7 @@ def _parse_payment_row(
     return Movement(
         kind=MovementKind.PAYMENT,
         charge_class=None,
-        when=None,
+        when=when,
         currency=currency,
         amount=amount,
         installment_number=None,
@@ -686,17 +766,26 @@ def _parse_payments_block(
     return movements, index
 
 
-def _classify_charge_row(
+def _parse_charge_row(
     row: PositionedRow, pesos_edge: float, dolares_edge: float | None
 ) -> Movement | None:
-    """Classify a post-total charge row **by shape**; ``None`` means "not a charge row"."""
+    """Classify a **dated** post-total charge row **by shape**.
+
+    ``None`` means "not a charge row at all" (no leading date, or the shape
+    matches no known charge class) -- the caller decides whether that is the
+    section's terminator or a genuine refusal.
+    """
     tokens = list(row.tokens)
-    if not tokens:
+    if not tokens or _DATE_RE.match(tokens[0].text) is None:
         return None
-    amount_token = tokens[-1]
+    when = _parse_date_token(tokens[0].text, row.page, row.row)
+    rest = tokens[1:]
+    if not rest:
+        return None
+    amount_token = rest[-1]
     if not _is_amount_token(amount_token.text):
         return None
-    head = tokens[:-1]
+    head = rest[:-1]
     if head and head[-1].text == "$":
         head = head[:-1]
     if not head:
@@ -714,7 +803,7 @@ def _classify_charge_row(
     return Movement(
         kind=MovementKind.CHARGE,
         charge_class=charge_class,
-        when=None,
+        when=when,
         currency=currency,
         amount=amount,
         installment_number=None,
@@ -741,7 +830,7 @@ def _parse_consumption_section(
     while index < len(rows):
         row = rows[index]
         if _folded_prefix(row, 2) == ("total", "consumos"):
-            printed = _row_two_column_amounts(row, pesos_edge, dolares_edge, "TOTAL CONSUMOS")
+            printed = _row_ordered_amounts(row, "TOTAL CONSUMOS")
             return movements, printed, index + 1
         if not row.tokens or _DATE_RE.match(row.tokens[0].text) is None:
             raise CardLiquidacionParseError(
@@ -766,14 +855,24 @@ def _parse_consumption_section(
 def _parse_charges_section(
     rows: Sequence[PositionedRow], index: int, pesos_edge: float, dolares_edge: float | None
 ) -> tuple[list[Movement], int]:
-    if index < len(rows) and _is_charges_heading(rows[index]):
-        index += 1
+    """Parse the charges zone. ``rows[index]`` must already be the recognized heading.
+
+    The heading is followed by the charges section's **own** detail header
+    (never carrying ``NRO.``, unlike every other one) before the first dated
+    charge row; its absence is a structural refusal, not silent tolerance.
+    """
+    index += 1  # the heading itself
+    if index >= len(rows) or not _is_detail_header(rows[index]):
+        raise CardLiquidacionParseError(
+            "the charges section heading is not followed by its own detail header"
+        )
+    index += 1  # the charges section's header
     movements: list[Movement] = []
     while index < len(rows):
         row = rows[index]
         if _is_saldo_actual(row):
             return movements, index
-        parsed = _classify_charge_row(row, pesos_edge, dolares_edge)
+        parsed = _parse_charge_row(row, pesos_edge, dolares_edge)
         if parsed is None:
             raise CardLiquidacionParseError(
                 f"page {row.page}, row {row.row}: an unrecognized line appears inside the "
@@ -919,24 +1018,27 @@ def parse_card_liquidacion(rows: Sequence[PositionedRow]) -> CardLiquidacion:
     cierre_index = _find_row(rows, _is_cierre_actual)
     if cierre_index is None:
         raise CardLiquidacionParseError("no CIERRE ACTUAL row was found")
-    close_date = _parse_cierre_actual(rows[cierre_index])
+    close_date = _parse_cierre_actual_date(rows, cierre_index)
 
-    summary_index = _find_row(rows, _is_saldo_actual, start=cierre_index + 1)
-    if summary_index is None:
-        raise CardLiquidacionParseError("no summary SALDO ACTUAL row was found")
-    summary_ars, summary_usd = _row_two_column_amounts(
-        rows[summary_index], pesos_edge, dolares_edge, "summary SALDO ACTUAL"
-    )
-
-    anterior_index = _find_row(rows, _is_saldo_anterior, start=summary_index + 1)
+    anterior_index = _find_row(rows, _is_saldo_anterior, start=cierre_index + 1)
     if anterior_index is None:
         raise CardLiquidacionParseError("no SALDO ANTERIOR row was found")
-    opening_ars, opening_usd = _row_two_column_amounts(
-        rows[anterior_index], pesos_edge, dolares_edge, "SALDO ANTERIOR"
-    )
+    opening_ars, opening_usd = _row_ordered_amounts(rows[anterior_index], "SALDO ANTERIOR")
+
+    summary_index = _find_row(rows, _is_saldo_actual, start=anterior_index + 1)
+    if summary_index is None:
+        raise CardLiquidacionParseError("no summary SALDO ACTUAL row was found")
+    summary_ars, summary_usd = _row_ordered_amounts(rows[summary_index], "summary SALDO ACTUAL")
+
+    detail_header_index = _find_row(rows, _is_detail_header, start=summary_index + 1)
+    if detail_header_index is None:
+        raise CardLiquidacionParseError(
+            "no detail section (FECHA ... PESOS [DOLARES] header) was found after the summary box"
+        )
+    index = detail_header_index + 1
 
     movements: list[Movement] = []
-    payments, index = _parse_payments_block(rows, anterior_index + 1, pesos_edge, dolares_edge)
+    payments, index = _parse_payments_block(rows, index, pesos_edge, dolares_edge)
     movements.extend(payments)
 
     comprobante_seen: dict[str, tuple[int, int]] = {}
@@ -953,6 +1055,13 @@ def parse_card_liquidacion(rows: Sequence[PositionedRow]) -> CardLiquidacion:
                 "the document ends before a detail SALDO ACTUAL row is found"
             )
         row = rows[index]
+        if _is_consumos_title(row):
+            index += 1
+            continue
+        if _is_charges_heading(row):
+            charge_movements, index = _parse_charges_section(rows, index, pesos_edge, dolares_edge)
+            movements.extend(charge_movements)
+            continue
         if _is_detail_header(row):
             index += 1
             section_movements, printed_total, index = _parse_consumption_section(
@@ -976,14 +1085,15 @@ def parse_card_liquidacion(rows: Sequence[PositionedRow]) -> CardLiquidacion:
             section_index += 1
             continue
         if _is_saldo_actual(row):
-            detail_ars, detail_usd = _row_two_column_amounts(
-                row, pesos_edge, dolares_edge, "detail SALDO ACTUAL"
-            )
+            detail_ars, detail_usd = _row_ordered_amounts(row, "detail SALDO ACTUAL")
             break
-        if section_index == 0:
-            raise CardLiquidacionParseError("no consumption section (detail header) was found")
-        charge_movements, index = _parse_charges_section(rows, index, pesos_edge, dolares_edge)
-        movements.extend(charge_movements)
+        raise CardLiquidacionParseError(
+            f"page {row.page}, row {row.row}: an unrecognized line appears between "
+            f"consumption sections"
+        )
+
+    if section_index == 0:
+        raise CardLiquidacionParseError("no consumption section (detail header) was found")
 
     checks = _reconcile(
         movements=movements,
