@@ -1919,3 +1919,10 @@ index grows as statements are added, so content that passed at commit time can f
   by irregular values. In older commits they stay: they were invented without ledger access and
   reveal nothing (owner decision). One of them is the sample model's `Expenses:Supermercado` total,
   which the guard already exempts as a derived number once `sample/` exists.
+
+**Published 2026-09-27.** The ten slices were pushed as `feat/family-ledger-01-bootstrap` …
+`feat/family-ledger-10-brubank` and opened as stacked PRs #1–#10 (PR #1 targets `main`, each later
+PR targets the previous branch; each PR's diff matches its slice exactly). No CI ran on any of them:
+GitHub lists no registered workflow for the repository, so Actions appears to be disabled for it —
+to be checked by the owner in the repository settings. This branch (`feat/family-ledger`, with
+BBVA) stays local until T-07 closes.
