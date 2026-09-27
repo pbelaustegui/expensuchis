@@ -706,6 +706,16 @@ market rate. Confirm the exact presentation against a real statement before enco
       row's printed `dd/mm/yyyy` disagrees, or when `CreationDate` is more than 60 days after the
       close. An explicit year override covers late-downloaded history. The parser stays pure: it
       takes the anchor date (or the override) as an argument; T-07b reads `CreationDate`.
+      **T-07a delivered 2026-09-27** — commit `2e2b6ab` (`importers/bbva.py`, 43 parser tests,
+      two synthetic fixtures; 795 passed / 2 skipped, ruff clean). The parent review caught one
+      bug before commit: section (A) was mandatory, which would have refused the real multi-block
+      statement (it has none); it is now optional, and purchase rows without it refuse through
+      the join. The leak guard refused the first commit: round synthetic amounts, a name and
+      filler words collided with real statement tokens, so they were replaced; six structural
+      words the parser must name (`consolidado`, `ganados`, `origen`, `pagina`, `tarjetas`,
+      `ahorro`) were added to the ledger-side baseline with the owner's approval. Native review:
+      consent **declined** for this candidate (`sha256:9483d0b5…`, medium, 1710 lines), so it is
+      unreviewed. **Next: T-07b** (wiring, `CreationDate` anchor, sub-account → ledger mapping).
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
