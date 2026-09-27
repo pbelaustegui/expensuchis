@@ -696,7 +696,14 @@ market rate. Confirm the exact presentation against a real statement before enco
       `CounterpartyMap`, own accounts → `Assets:TransferenciaEnTransito`, and an unrecognized
       counterparty surfaces for review, never defaulted; the recipient CUIT is key material only,
       redacted; (5) both consolidated statements belong to P1, so P1 holds more BBVA accounts
-      than the model opens: the sub-account → ledger-account mapping is decided in T-07b.
+      than the model opens: the sub-account → ledger-account mapping is decided in T-07b;
+      (6) the statement never prints its year (rows are `dd/mm`, the close is `SALDO AL <dd> DE
+      <MES>`, filenames carry no year): the year is inferred from the PDF `CreationDate` — the
+      close is the latest `<dd> <MES>` on or before it, rows are placed backwards from the close
+      across a December→January boundary — and the import refuses when a matched debit-detail
+      row's printed `dd/mm/yyyy` disagrees, or when `CreationDate` is more than 60 days after the
+      close. An explicit year override covers late-downloaded history. The parser stays pure: it
+      takes the anchor date (or the override) as an argument; T-07b reads `CreationDate`.
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
