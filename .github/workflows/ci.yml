@@ -14,7 +14,7 @@ jobs:
         uses: astral-sh/setup-uv@v10.2.0
 
       - name: Validate the synthetic sample ledger
-        run: uv run bean-check sample/smoke.beancount
+        run: uv run bean-check sample/smoke.beancount && uv run bean-check sample/family-model.beancount
 
       - name: Run tests (including both privacy guards)
         run: uv run pytest -q

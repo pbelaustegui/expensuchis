@@ -85,6 +85,40 @@ def _containing_repository(candidate: Path) -> Path | None:
     return None
 
 
+def assert_outside_repository(path: Path) -> Path:
+    """Return ``path`` resolved, refusing any location inside a repository.
+
+    This is the per-path guard that closes the defect a previous review found in
+    :func:`ledger_dir`: bounding only the base directory is not enough, because a
+    derived path below the base can still resolve inside a repository through a
+    symlinked component. Every path the ledger layout hands out therefore goes
+    through this check individually, not just the root it descends from.
+
+    **Boundary, stated rather than implied:** repository roots come from
+    :func:`repository_roots`, which walks *up* from this module's directory and the
+    process cwd. A checkout nested *below* the base is therefore not discovered,
+    and a symlink that resolves to a location outside every discovered root is not
+    caught. The guard refuses what it can resolve into a repository it knows about;
+    it does not scan the filesystem for repositories.
+
+    The path does not need to exist: ``resolve`` follows the existing components
+    and normalises the rest, so a symlinked parent is still detected.
+
+    Raises:
+        LedgerDirError: if ``path`` resolves to a repository root or a descendant
+            of one.
+    """
+    candidate = Path(path).expanduser().resolve()
+    root = _containing_repository(candidate)
+    if root is not None:
+        raise LedgerDirError(
+            f"Ledger path {candidate} is inside the repository at {root}. "
+            f"Ledger data must never live inside this public repository; derive "
+            f"it from {ENV_VAR} instead."
+        )
+    return candidate
+
+
 def ledger_dir() -> Path:
     """Return the resolved ledger directory, outside every discoverable repository.
 
@@ -118,12 +152,6 @@ def ledger_dir() -> Path:
             f"at a directory outside this public repository."
         )
 
-    root = _containing_repository(candidate)
-    if root is not None:
-        raise LedgerDirError(
-            f"{ENV_VAR}={candidate} is inside the repository at {root}. "
-            f"The ledger must never live inside this public repository; point "
-            f"{ENV_VAR} at a directory outside the repository instead."
-        )
+    assert_outside_repository(candidate)
 
     return candidate

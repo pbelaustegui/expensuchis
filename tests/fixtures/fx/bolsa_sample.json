@@ -1,0 +1,6 @@
+[
+  {"casa": "bolsa", "compra": 800.0, "venta": 820.5, "fecha": "2024-01-02"},
+  {"casa": "bolsa", "compra": 805.25, "venta": 825.0, "fecha": "2024-01-03"},
+  {"casa": "bolsa", "compra": 810.0, "venta": 830.75, "fecha": "2024-01-05"},
+  {"casa": "bolsa", "compra": 812.5, "venta": 832.0, "fecha": "2024-01-08"}
+]

@@ -1,0 +1,19 @@
+(0051) Banco Zxqv Qwerty S.A. CUIT 30-99999999-9
+IVA: Zxqv Qwerty Plugh Resp. Insc.
+Periodo Zxqv CIERRE 28 Mar 26 VENCIMIENTO 10 Abr 26
+Domicilio Zxqv Qwerty SUC: 1234
+Cierre Anterior Fec.: 28 Feb 26
+Cierre Posterior Fec.: 28 Abr 26
+Zxqv Qwerty Plugh Xqvor seis
+Zxqv Qwerty Plugh Xqvor siete
+Zxqv Qwerty Plugh Xqvor ocho
+Limite de Compras: COMPRA $ 137.284,59 Compras en USD $ 4.318,72
+SALDO ANTERIOR 2.847,61 63,17
+____________________________________________________________
+26 Febrero 10 400222 Zxqv Qwerty 107,63
+Totales 0009 Total Consumos de Tarjeta Zxqv 107,63 * 0,00 *
+26 Marzo 05 IIBB Zxqv qwerty 9,99%( 2.187,43 ) 249,75
+06 IVA RG 4240 21%( 517,29 ) 105,00
+07 AA.AA 1234 3,5% ( 804,16 ) 28,00
+26 IIBB Zxqv 2,5% ( 4906,21 ) 171,72
+27 IIBB Zxqv 2,5%( 4906,21) 113,45

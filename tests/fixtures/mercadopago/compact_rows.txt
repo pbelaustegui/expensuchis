@@ -1,0 +1,17 @@
+1/1
+RESUMEN DE CUENTA EN PESOS
+Zxqv Qwerty Plugh
+Zq: ZqZqZqZqZqZqZqZqZqZqZqZq CUIT/ ZqZq: ZqZqZqZqZqZqZqZqZqZqZq
+Periodo: 01 de 01 de 2026 al 31 de 01 de 2026
+Saldo inicial: $ 9.876,54
+Entradas: $ 999,99
+Salidas: $ -444,44
+Saldo final: $ 10.432,09
+DETALLE DE MOVIMIENTOS
+Fecha Operacion ID de operacion
+Movimiento Valor Saldo
+01-01-2026 Rendimientos Zxqv 100000000001 $ 111,11 $ 9.987,65
+02-01-2026 Transferencia recibida Zxqv Dos 100000000002 $ 222,22 $ 10.209,87
+02-01-2026 Rendimientos Qwerty 100000000003 $ 222,22 $ 10.432,09
+03-01-2026 Transferencia enviada Plugh 100000000004 $ -444,44 $ 9.987,65
+04-01-2026 Rendimientos Zxqv Tres 100000000005 $ 444,44 $ 10.432,09
