@@ -678,6 +678,25 @@ market rate. Confirm the exact presentation against a real statement before enco
       (`DÉBITO`/`CRÉDITO`/`SALDO`) and the Visa and Mastercard statements (**`PESOS` and
       `DÓLARES` columns**, `C.NN/NN` installments). Requires adding `pypdfium2` as a declared
       runtime dependency; `pypdf` cannot read these files. — depends on T-04.
+      **Split 2026-09-27:** **T-07a** the account parser (pure text, reconciliation gate,
+      synthetic fixtures), **T-07b** its wiring, **T-07c** the real-file probe, then the cards.
+      `pypdfium2` is already declared. **Account reconnaissance closed 2026-09-27** (masked): see
+      *T-07a reconnaissance* below. **Owner decisions 2026-09-27:** (1) the movement table is the
+      source of truth; the debit-card merchant comes from the `DETALLE` section joined by
+      (date, amount), strictly: a table row with zero or several candidates inside the table's
+      window refuses the import, and detail rows outside the window are ignored (they belong to
+      the neighbouring statement); (2) the dedup key is (account, date, amount, running balance)
+      for every row, and the detail's 6-digit id is metadata only; (3) a multi-sub-account
+      statement reconciles each block on its own; `$` blocks import, and a `U$S` block is accepted
+      only when `SIN MOVIMIENTOS` (emits nothing), otherwise it refuses, as with Brubank;
+      (4) postings: `PAGO CON VISA DEBITO` → `CounterpartyMap` by merchant (case (c));
+      `CUENTA VISA`/`CUENTA MASTERCARD` → `Liabilities:BBVA:<person>:Visa`/`:Mastercard`;
+      `EXTRACCION` → `Expenses:Efectivo`; `PAGO HABERES` → `Income:<person>:Sueldo`;
+      `INTERESES GANADOS` → `Income:<person>:Intereses`; sent and received transfers →
+      `CounterpartyMap`, own accounts → `Assets:TransferenciaEnTransito`, and an unrecognized
+      counterparty surfaces for review, never defaulted; the recipient CUIT is key material only,
+      redacted; (5) both consolidated statements belong to P1, so P1 holds more BBVA accounts
+      than the model opens: the sub-account → ledger-account mapping is decided in T-07b.
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
