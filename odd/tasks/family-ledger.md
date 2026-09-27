@@ -777,6 +777,30 @@ market rate. Confirm the exact presentation against a real statement before enco
       `IIBB PERCEP-*` and `DB.RG NNNN` → `Expenses:Impuestos:Percepciones`, `IVA RG NNNN` →
       `Expenses:Impuestos:IVA`; any other shape refuses. **Planned units:** **T-07d** the card
       parser (geometry-based, both cards), **T-07e** its wiring, **T-07f** the real-file probe.
+      **T-07d delivered 2026-09-27** — `pdf.read_pdf_rows()` (positioned rows from `pypdfium2`
+      character boxes with `loose=True`) and `importers/bbva_card.py`, pure over those rows
+      (`d0670f7`, then four corrections: `62e7174`, `e7cb43e`, `98b7d07`, `ab78098`). Route:
+      delegated direct (writer) for the first four; the fifth was a small inline fix. Each correction came
+      from running the parser against the real cards (masked output only) before review, and
+      each refuted a written assumption: (1) summary-box labels carry their value on the
+      **next** row, payments and charges in the detail **are** dated, and the Mastercard
+      **does** print a `DÓLARES` column; (2) in positioned rows the PDF often has no spaces,
+      so words merge into one token (`CIERREACTUAL`, `SUPAGOENPESOS`, `TOTALCONSUMOSDE…`,
+      `IVARG…`) while others stay split, so every label and charge shape now matches on
+      despaced, folded row text; (3) every page carries a page-counter row and a vertical
+      right-margin run (64 single-character rows at x0≈579); (4) pages 1 and 3 also carry a
+      vertical left-margin run (x0 29-56). Margin tokens are cut relative to the detail
+      header's own edges (DÓLARES x1, FECHA x0), and the page counter matches by shape;
+      anything else unrecognized still refuses. The recon's "wrapped row" was an artifact of
+      the scratch script. **Real run, both cards parse, all seven checks ok:** Mastercard
+      1 payment + 4 ARS purchases; Visa 2 payments (ARS, USD), 35 ARS + 11 USD purchases,
+      5 charges. 907 passed / 7 skipped, `ruff` clean. Assessed medium,
+      `slice_budget_reached` (5482 lines, 22 files, most of them fixtures and tests); owner
+      granted; native review `review-236737c41228bb5c` (reliability) **approved**,
+      acknowledged and burned. Advisory follow-ups: the brand check is a substring match
+      (`visa` inside other text), `read_pdf_rows` assumes top-to-bottom row order, the
+      left-margin cut could silently drop a real token that starts left of `FECHA`, and a
+      statement with no payment row is untested.
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
@@ -1955,7 +1979,8 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    suspected prompt injection. It was abandoned (`operator_disposition`, no results captured), and
    its read-only candidate view was deleted by hand because it held copies of `sample/*.beancount`
    that the privacy pre-commit refuses. That is a transport failure, not an approval: re-review
-   from `a8bc31e` once the relay works. **Next: T-07d, the BBVA card parser** (reconnaissance and owner decisions recorded in the
+   from `a8bc31e` once the relay works. **Next: T-07e, the BBVA card importer wiring;** T-07d (the card parser) is delivered and
+   passes against both real cards (reconnaissance and owner decisions recorded in the
    T-07 entry); the account side (T-07a/b/c) is delivered and passes
    against the real files, see the T-07 entry. Still open from T-08: the
    probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
