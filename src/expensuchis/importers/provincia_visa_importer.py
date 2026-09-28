@@ -121,6 +121,7 @@ from beangulp import Importer
 
 from ..counterparties import CounterpartyMap
 from . import provincia_visa
+from .bbva_card import is_bbva_card_liquidacion
 from .pdf import read_pdf
 from .provincia_importer import (
     CARD_ACCOUNT,
@@ -575,14 +576,19 @@ class ProvinciaVisaImporter(Importer):
         """Claim the file when its extracted text carries the card marker.
 
         The marker is matched after folding (casefold + accent stripping) because
-        the statement's title casing varies between renderings. Never raises and
-        never prints: any extraction failure is a non-match.
+        the statement's title casing varies between renderings. A BBVA card
+        statement is a *Liquidación* too, so the file is yielded whenever BBVA's
+        structural check claims it: two claimants make ``extract`` refuse the
+        file as ``ambiguous-importer``. Never raises and never prints: any
+        extraction failure is a non-match.
         """
         try:
             text = self._read_text(filepath)
         except Exception:  # noqa: BLE001 - an unreadable file is simply not ours
             return False
-        return provincia_visa.fold(MARKER) in provincia_visa.fold(text)
+        return provincia_visa.fold(MARKER) in provincia_visa.fold(text) and not (
+            is_bbva_card_liquidacion(text)
+        )
 
     def account(self, filepath: str) -> str:
         """Return the account the statement is about: the ARS card liability.
