@@ -9,6 +9,7 @@ beangulp 0.2.0 ships no console scripts, so this module is the front end over it
     expensuchis report <batch-id>
     expensuchis approve <batch-id>
     expensuchis append <batch-id>
+    expensuchis summary --month YYYY-MM --series {mep,ccl}
 
 Exit codes are stable: ``0`` success, ``1`` a refusal or validation failure (printed
 with a greppable reason code and one human sentence), ``2`` a usage error, ``141`` the
@@ -23,11 +24,13 @@ import os
 import sys
 from collections.abc import Sequence
 
-from . import pipeline
+from . import pipeline, summary
 from .bootstrap import BootstrapError, bootstrap
+from .fx import Series
 from .ledger import LedgerDirError
 from .paths import LedgerPaths
 from .pipeline import PipelineError
+from .summary import SummaryError
 
 __all__ = ["build_parser", "main"]
 
@@ -68,6 +71,12 @@ def build_parser() -> argparse.ArgumentParser:
     append_parser = subparsers.add_parser("append", help="append an approved batch to the ledger")
     append_parser.add_argument("batch_id", metavar="BATCH-ID")
 
+    summary_parser = subparsers.add_parser(
+        "summary", help="print the month's Expenses totals in USD at date"
+    )
+    summary_parser.add_argument("--month", required=True, metavar="YYYY-MM")
+    summary_parser.add_argument("--series", required=True, choices=["mep", "ccl"])
+
     return parser
 
 
@@ -86,7 +95,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         code = _dispatch(args, paths)
         sys.stdout.flush()  # surface a buffered BrokenPipeError inside the guard
         return code
-    except (PipelineError, BootstrapError) as exc:
+    except (PipelineError, BootstrapError, SummaryError) as exc:
         print(f"{_REFUSAL_PREFIX}: {exc.reason}: {exc.message}", file=sys.stderr)
         return 1
     except LedgerDirError as exc:
@@ -143,6 +152,14 @@ def _dispatch(args: argparse.Namespace, paths: LedgerPaths) -> int:
         print(f"appended: {result.batch_id}")
         for path in result.files:
             print(f"wrote: {path}")
+        return 0
+
+    if args.command == "summary":
+        series = Series.MEP if args.series == "mep" else Series.CCL
+        result = summary.summarize(paths, args.month, series)
+        for account, usd in result.by_account.items():
+            print(f"{account}\t{usd:.2f} USD")
+        print(f"total\t{result.total:.2f} USD")
         return 0
 
     raise AssertionError(f"unhandled command {args.command!r}")  # pragma: no cover

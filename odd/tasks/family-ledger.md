@@ -1024,6 +1024,25 @@ market rate. Confirm the exact presentation against a real statement before enco
       trigger: parser + test file, non-trivial). Follow-ups (2) and (3) are untouched — still open.
 - [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
+      **First deliverable done 2026-09-28** (per the 2026-09-24 decision that T-N+1's minimum
+      deliverable is a single report, not a reporting suite): `expensuchis summary --month
+      YYYY-MM --series {mep,ccl}` totals every `Expenses:*` account for one month in USD.
+      A posting already denominated in USD (a card or cash purchase in dollars) uses its own
+      dollar amount directly — its `@` price, when present, is the administrative rate used to
+      book the ARS liability leg and is never reapplied. An ARS (or other non-USD) posting is
+      converted through the cached FX series at the transaction's own date, using the *venta*
+      (sell) side of the quote. A date the series cannot answer for (missing cache, or beyond
+      `fx.MAX_STALENESS_DAYS`) refuses the whole summary rather than silently dropping or
+      estimating a posting. New module `src/expensuchis/summary.py`
+      (`summarize`/`MonthlySummary`/`SummaryError`), CLI wiring in `cli.py`, 9 tests in
+      `tests/test_summary.py` plus 2 in `tests/test_cli.py`. Route: delegated direct (writer
+      trigger: module + CLI + two test files). TDD strict, runner `uv run pytest`: RED was
+      `ImportError` on `expensuchis.summary`, then `invalid choice: 'summary'` on the CLI parser;
+      GREEN 972 passed / 7 skipped, `ruff check .` and `ruff format --check .` clean, `bean-check`
+      clean on both sample ledgers. **Still open, deliberately not built yet:** the "evolution
+      over time" view (multiple months) and the installments view (projecting the `installments`/
+      `first_due`/`installment_amount` transaction metadata forward) — no design work done on
+      either.
 - [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
       liability and never creates an expense. — depends on T-04.
 
