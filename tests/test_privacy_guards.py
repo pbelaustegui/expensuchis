@@ -76,9 +76,7 @@ def test_git_gentle_ai_cache_is_scanned(tmp_path: Path) -> None:
     (tmp_path / ".git" / "gentle-ai" / "candidate-views").mkdir(parents=True)
     (tmp_path / ".git" / "gentle-ai" / "candidate-views" / "planted.pdf").write_text("")
 
-    assert find_data_bearing_files(tmp_path) == [
-        ".git/gentle-ai/candidate-views/planted.pdf"
-    ]
+    assert find_data_bearing_files(tmp_path) == [".git/gentle-ai/candidate-views/planted.pdf"]
 
 
 def test_rest_of_git_is_still_excluded(tmp_path: Path) -> None:
@@ -91,9 +89,7 @@ def test_rest_of_git_is_still_excluded(tmp_path: Path) -> None:
     (tmp_path / ".git" / "lfs" / "store" / "object.ofx").write_text("")
     (tmp_path / ".git" / "COMMIT_EDITMSG.pdf").write_text("")
 
-    assert find_data_bearing_files(tmp_path) == [
-        ".git/gentle-ai/candidate-views/found.csv"
-    ]
+    assert find_data_bearing_files(tmp_path) == [".git/gentle-ai/candidate-views/found.csv"]
 
 
 def test_a_nested_git_directory_stays_excluded(tmp_path: Path) -> None:

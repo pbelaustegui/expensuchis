@@ -148,9 +148,7 @@ def test_a_reference_row_keeps_its_reference_and_no_description() -> None:
 
 def test_a_wrapped_description_and_a_compact_row_are_the_same_movement() -> None:
     header = (
-        "Extracto de Cuenta\n"
-        "Fecha Concepto Importe Fecha Valor Saldo\n"
-        "SALDO ANTERIOR 1000.37\n"
+        "Extracto de Cuenta\nFecha Concepto Importe Fecha Valor Saldo\nSALDO ANTERIOR 1000.37\n"
     )
     compact = parse_extracto(
         header + "01/01/2026 compra Zxqv Qwerty Plugh -100.37 01-01 900.00\n"
@@ -312,10 +310,10 @@ def test_the_natural_key_is_date_identity_amount() -> None:
 def test_a_reference_row_keys_on_the_recipient_cuit() -> None:
     """The ``X:XXXXXXXXXXX`` field is the recipient's CUIT/CUIL — the key's identity.
 
-    The user confirmed the reference rows are immediate transfers, so two transfers
-to the same person must not collapse: the CUIT (not the moving reference numbers)
-is the stable part. The CUIT is personal data: it is key material that reaches the
-private ledger's staged and report bytes by design, never a module or probe log line.
+        The user confirmed the reference rows are immediate transfers, so two transfers
+    to the same person must not collapse: the CUIT (not the moving reference numbers)
+    is the stable part. The CUIT is personal data: it is key material that reaches the
+    private ledger's staged and report bytes by design, never a module or probe log line.
     """
     extracto = parse_extracto(REFERENCE)
     keys = movement_keys(extracto.movements)
@@ -325,9 +323,7 @@ private ledger's staged and report bytes by design, never a module or probe log 
 
 def test_two_same_day_transfers_to_one_cuit_get_the_occurrence_suffix() -> None:
     header = (
-        "Extracto de Cuenta\n"
-        "Fecha Concepto Importe Fecha Valor Saldo\n"
-        "SALDO ANTERIOR 2000.19\n"
+        "Extracto de Cuenta\nFecha Concepto Importe Fecha Valor Saldo\nSALDO ANTERIOR 2000.19\n"
     )
     text = (
         header
@@ -343,9 +339,7 @@ def test_two_same_day_transfers_to_one_cuit_get_the_occurrence_suffix() -> None:
 
 def test_a_reference_row_without_a_cuit_shaped_token_keys_on_its_reference() -> None:
     header = (
-        "Extracto de Cuenta\n"
-        "Fecha Concepto Importe Fecha Valor Saldo\n"
-        "SALDO ANTERIOR 2000.19\n"
+        "Extracto de Cuenta\nFecha Concepto Importe Fecha Valor Saldo\nSALDO ANTERIOR 2000.19\n"
     )
     text = (
         header
@@ -366,13 +360,15 @@ def test_repeated_rows_get_a_deterministic_occurrence_suffix() -> None:
     row_a = "01/01/2026 compra Zxqv Uno -10.05 01-01 990.32"
     row_b = "01/01/2026 compra Zxqv Uno -10.05 01-01 980.27"
     header = (
-        "Extracto de Cuenta\n"
-        "Fecha Concepto Importe Fecha Valor Saldo\n"
-        "SALDO ANTERIOR 1000.37\n"
+        "Extracto de Cuenta\nFecha Concepto Importe Fecha Valor Saldo\nSALDO ANTERIOR 1000.37\n"
     )
-    text = header + row_a + "\n" + row_b + "\n" + (
-        "Fecha Valor                       Importe\n"
-        "$ 980.27                          $ 20.10\n"
+    text = (
+        header
+        + row_a
+        + "\n"
+        + row_b
+        + "\n"
+        + ("Fecha Valor                       Importe\n$ 980.27                          $ 20.10\n")
     )
     extracto = parse_extracto(text)
     keys = movement_keys(extracto.movements)

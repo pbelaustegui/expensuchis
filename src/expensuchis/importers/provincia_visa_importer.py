@@ -421,8 +421,7 @@ def _surcharge_key(
     """
     amount = surcharge.amount_ars if surcharge.amount_ars is not None else surcharge.amount_usd
     base = (
-        f"provincia-visa:{person}:{when.isoformat()}:{surcharge.kind.value}:"
-        f"{amount:.2f}:{currency}"
+        f"provincia-visa:{person}:{when.isoformat()}:{surcharge.kind.value}:{amount:.2f}:{currency}"
     )
     return base if occurrence == 1 else f"{base}#{occurrence}"
 
@@ -509,9 +508,7 @@ def build_entries(
         # parser's per-row key unchanged. The plan key is the one place the
         # canonical identity lives: the map key and the payee stay printed.
         if charge.installment_total is not None:
-            key = _plan_key(
-                charge, person, _row_amount(charge)[1], _canonical_identity(printed)
-            )
+            key = _plan_key(charge, person, _row_amount(charge)[1], _canonical_identity(printed))
         else:
             key = row_key
         entries.append(_charge_entry(liquidacion, charge, person, category, printed, key))
@@ -525,9 +522,7 @@ def build_entries(
         # stand-in. ``Liquidacion`` exposes the closing month but not the closing
         # day, so the month's first day is the closest deterministic value the
         # parser as-is offers.
-        when = surcharge.when or dt.date(
-            liquidacion.closing_year, liquidacion.closing_month, 1
-        )
+        when = surcharge.when or dt.date(liquidacion.closing_year, liquidacion.closing_month, 1)
         amount, currency = _row_amount(surcharge)
         seen = (when.isoformat(), surcharge.kind.value, f"{amount:.2f}", currency)
         occurrence = surcharge_occurrences.get(seen, 0) + 1

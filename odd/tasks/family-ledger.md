@@ -543,12 +543,19 @@ market rate. Confirm the exact presentation against a real statement before enco
       — depends on T-04a. **Closed 2026-09-25** — native review `review-5b534756e599835c` approved
       after one bounded correction (four CRITICAL findings, all candidate-caused), commits
       `8b8baa0`, `2dd84ba`, `a0c208b`, `a25d043`. See *Native review of T-04b* below.
-- [ ] T-01c: **Format the tree once under `ruff format` and add it to CI.** Nine files predate
+- [x] T-01c: **Format the tree once under `ruff format` and add it to CI.** Nine files predate
       the formatter and drift; CI's gate is `ruff check .` only, so nothing is broken today, but
       the drift is invisible until someone runs `ruff format --check .` and finds nine red files.
       Deliberately not done as part of T-04b: it is a large cosmetic diff across guarded files and
       belongs in its own reviewable unit. Discovered by T-04b's brief, which asked for a check the
       project never had.
+      **Closed 2026-09-28.** By the time this ran, drift had grown to 20 files, not nine — the
+      count in the original note was stale. `uv run ruff format .` reformatted them (cosmetic
+      only, no logic change); `.github/workflows/ci.yml` gained a `ruff format --check .` step
+      after the existing lint step, so future drift fails CI instead of sitting invisible. Route:
+      direct inline (single mechanical formatter run, no design decision). Verification: 961
+      passed / 7 skipped (`uv run pytest -q`), `ruff check .` clean, `ruff format --check .`
+      clean, `bean-check` clean on both sample ledgers. Branch `chore/ruff-format-drift`.
 - [x] T-01d: **Redact the leak guard's failure output.** A finding prints the offending token *and*
       the statement path it came from — correct for a human at a terminal and a leak when an agent
       runs the guard, because the agent's model is a remote API. Running it once during T-05a put

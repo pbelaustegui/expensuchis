@@ -251,9 +251,7 @@ def is_bbva_extracto(text: str) -> bool:
     never Brubank's exact ``resumen``+``movimientos`` title line.
     """
     lines = _normalize(text).split("\n")
-    has_header = any(
-        tuple(fold(line.strip()).split()) == _TABLE_HEADER_TOKENS for line in lines
-    )
+    has_header = any(tuple(fold(line.strip()).split()) == _TABLE_HEADER_TOKENS for line in lines)
     has_consolidado = any("consolidado" in fold(line).split() for line in lines)
     return has_header and has_consolidado
 
@@ -479,9 +477,7 @@ _TRANSFER_OUT_RE = re.compile(
 )
 
 
-def _classify_concept(
-    concept: str, is_debit: bool, has_origin: bool, line: int
-) -> MovementKind:
+def _classify_concept(concept: str, is_debit: bool, has_origin: bool, line: int) -> MovementKind:
     """Classify a folded concept into its :class:`MovementKind`, refusing on mismatch."""
     if concept == "pago con visa debito":
         kind, expected_debit, forbids_origin = MovementKind.DEBIT_CARD_PURCHASE, True, False
@@ -641,16 +637,13 @@ def _parse_block(rows: list[tuple[int, int, str]], start: int, end: int) -> tupl
         row_match = _ROW_RE.match(stripped)
         if row_match is None:
             raise ExtractoConsolidadoParseError(
-                f"page {page}, line {line}: an unrecognized line appears inside the "
-                f"movement table"
+                f"page {page}, line {line}: an unrecognized line appears inside the movement table"
             )
         origin = row_match.group("origin") or ""
         movement_raw = row_match.group("movement")
         is_debit = movement_raw.startswith("-")
         magnitude = _amount(movement_raw[1:] if is_debit else movement_raw, line, "amount")
-        concept_kind = _classify_concept(
-            row_match.group("concept"), is_debit, bool(origin), line
-        )
+        concept_kind = _classify_concept(row_match.group("concept"), is_debit, bool(origin), line)
         raw_rows.append(
             _RawRow(
                 dd=int(row_match.group("dd")),
@@ -893,7 +886,9 @@ def _reconcile(
     checks.append(CheckResult("total-movements", total_ok, total_detail))
 
     ascending_ok = True
-    ascending_detail = f"every block's rows are in non-decreasing date order across {len(blocks)} block(s)"
+    ascending_detail = (
+        f"every block's rows are in non-decreasing date order across {len(blocks)} block(s)"
+    )
     for block_index, dates in enumerate(block_dates):
         for row_index in range(1, len(dates)):
             if dates[row_index] < dates[row_index - 1]:

@@ -143,9 +143,7 @@ def test_every_liability_except_the_installment_plan_is_zero() -> None:
 
     balances = {account: _balance(transactions, account) for account in liability_accounts}
     outstanding = {
-        account: balance
-        for account, balance in balances.items()
-        if not _is_zero(balance)
+        account: balance for account, balance in balances.items() if not _is_zero(balance)
     }
     assert outstanding == {INSTALLMENT_CARD: {"ARS": Decimal("-720000.00")}}, outstanding
     # The case-(b) USD card is settled, and the ARS card is settled, so both are zero.
@@ -173,9 +171,7 @@ def test_transfer_clearing_account_is_exactly_zero_when_both_sides_are_present()
 
     balances = {account: _balance(transactions, account) for account in clearing_accounts}
     outstanding = {
-        account: balance
-        for account, balance in balances.items()
-        if not _is_zero(balance)
+        account: balance for account, balance in balances.items() if not _is_zero(balance)
     }
     assert outstanding == {}, (
         f"transfer clearing must be zero once both sides are imported: {outstanding}"
@@ -360,9 +356,7 @@ def test_no_account_is_opened_with_more_than_one_currency() -> None:
     openings = [entry for entry in entries if isinstance(entry, data.Open)]
     assert openings, "sample must open accounts"
     multi_currency = [
-        (entry.account, entry.currencies)
-        for entry in openings
-        if len(entry.currencies or []) > 1
+        (entry.account, entry.currencies) for entry in openings if len(entry.currencies or []) > 1
     ]
     assert multi_currency == [], f"accounts opened with several currencies: {multi_currency}"
 
@@ -485,9 +479,7 @@ def test_installment_plan_is_captured_as_metadata() -> None:
 def test_installment_card_is_still_outstanding() -> None:
     """The plan is not amortized: its card carries the whole debt at the sample's end."""
     transactions, _ = _load()
-    assert _balance(transactions, "Liabilities:Provincia:P2:Visa") == {
-        "ARS": Decimal("-720000.00")
-    }
+    assert _balance(transactions, "Liabilities:Provincia:P2:Visa") == {"ARS": Decimal("-720000.00")}
 
 
 def test_usd_suffixed_accounts_are_declared_usd() -> None:

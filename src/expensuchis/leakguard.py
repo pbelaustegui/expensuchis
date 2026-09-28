@@ -443,9 +443,7 @@ class TokenIndex:
         return set(self.token_to_files)
 
 
-def _load_cached_index(
-    cache_path: Path, fingerprint: list[dict[str, object]]
-) -> TokenIndex | None:
+def _load_cached_index(cache_path: Path, fingerprint: list[dict[str, object]]) -> TokenIndex | None:
     try:
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -455,7 +453,9 @@ def _load_cached_index(
     token_to_files = cached.get("tokens")
     if not isinstance(token_to_files, dict):
         return None
-    return TokenIndex({str(token): [str(p) for p in paths] for token, paths in token_to_files.items()})
+    return TokenIndex(
+        {str(token): [str(p) for p in paths] for token, paths in token_to_files.items()}
+    )
 
 
 def build_index(

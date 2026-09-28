@@ -85,8 +85,7 @@ def _body_to_decimal(body: str, fmt: AmountFormat, original: str) -> Decimal:
     match = pattern.fullmatch(body)
     if match is None:
         raise AmountParseError(
-            f"malformed amount {original!r} for format {fmt.name}: "
-            f"expected {_describe(fmt)}"
+            f"malformed amount {original!r} for format {fmt.name}: expected {_describe(fmt)}"
         )
     integer = match.group("int").replace(".", "").replace(",", "")
     decimals = match.group("dec")

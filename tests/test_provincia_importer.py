@@ -541,9 +541,15 @@ def test_sort_orders_by_date_then_by_key() -> None:
     order, with the natural key as the tiebreaker and ``reverse`` honoured.
     """
     movements = (
-        _movement("10.00", MovementKind.SALARY, description="sueldo Zxqv", date=dt.date(2026, 1, 5)),
-        _movement("30.00", MovementKind.SALARY, description="sueldo Plugh", date=dt.date(2026, 1, 2)),
-        _movement("20.00", MovementKind.SALARY, description="sueldo Qwerty", date=dt.date(2026, 1, 2)),
+        _movement(
+            "10.00", MovementKind.SALARY, description="sueldo Zxqv", date=dt.date(2026, 1, 5)
+        ),
+        _movement(
+            "30.00", MovementKind.SALARY, description="sueldo Plugh", date=dt.date(2026, 1, 2)
+        ),
+        _movement(
+            "20.00", MovementKind.SALARY, description="sueldo Qwerty", date=dt.date(2026, 1, 2)
+        ),
     )
     entries = build_entries(_extracto(*movements), "P2", _StubMap({}))
     ProvinciaImporter().sort(entries)
@@ -580,9 +586,7 @@ def test_entry_meta_carries_only_the_key() -> None:
         text_reader=lambda _path: REFERENCE_ROWS,
     ).extract("/statements/Provincia/P2/statement.pdf", [])
     assert all(set(entry.meta) == {"key"} for entry in entries)
-    assert entries[0].meta["key"] == (
-        "2026-01-10:12345678901:-50.07"
-    )
+    assert entries[0].meta["key"] == ("2026-01-10:12345678901:-50.07")
 
 
 def test_the_key_zero_pads_a_whole_peso_amount_to_two_decimals() -> None:
@@ -660,7 +664,9 @@ def test_the_reader_failure_suppresses_its_context_in_a_traceback() -> None:
 # ------------------------------------------------------------------ map resolution
 
 
-def test_expense_and_internal_destinations_use_the_account_part_verbatim(ledger: LedgerPaths) -> None:
+def test_expense_and_internal_destinations_use_the_account_part_verbatim(
+    ledger: LedgerPaths,
+) -> None:
     """A real ``CounterpartyMap`` resolves both destination prefixes.
 
     The map value's marker says inside/outside the ledger; the account after it is
@@ -812,9 +818,9 @@ def test_identify_returns_false_when_extraction_raises() -> None:
 
 def test_both_importers_cannot_claim_each_other_statements() -> None:
     assert not MercadoPagoImporter(text_reader=lambda _path: WRAPPED).identify("/tmp/x.pdf")
-    assert not ProvinciaImporter(
-        text_reader=lambda _path: "RESUMEN DE CUENTA EN PESOS\n"
-    ).identify("/tmp/x.pdf")
+    assert not ProvinciaImporter(text_reader=lambda _path: "RESUMEN DE CUENTA EN PESOS\n").identify(
+        "/tmp/x.pdf"
+    )
 
 
 # ------------------------------------------------------------------- registration

@@ -138,7 +138,9 @@ def test_a_single_word_name_is_caught(ledger: Path) -> None:
     _statement(ledger, "banco.pdf", "Titular: INVENTADOPERSONA")
     source, _ = _text_source()
 
-    result = evaluate({"tracker.md": "filed under InventadoPersona"}, source=source, ledger_root=ledger)
+    result = evaluate(
+        {"tracker.md": "filed under InventadoPersona"}, source=source, ledger_root=ledger
+    )
 
     assert result.status is GuardStatus.LEAK
     assert [finding.token for finding in result.findings] == ["inventadopersona"]
@@ -508,9 +510,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def test_baseline_reasons_after_hash_are_ignored(ledger: Path) -> None:
     (ledger / BASELINE_FILENAME).write_text(
-        "cuenta  # generic banking vocabulary\n"
-        "# a whole-line comment\n"
-        "saldo\n",
+        "cuenta  # generic banking vocabulary\n# a whole-line comment\nsaldo\n",
         encoding="utf-8",
     )
 
@@ -659,9 +659,7 @@ def test_commit_msg_hook_allows_a_benign_message(tmp_path: Path, ledger: Path) -
     assert completed.returncode == 0, completed.stderr
 
 
-def test_commit_msg_hook_fails_closed_without_a_message_file(
-    tmp_path: Path, ledger: Path
-) -> None:
+def test_commit_msg_hook_fails_closed_without_a_message_file(tmp_path: Path, ledger: Path) -> None:
     env = _hook_environment(tmp_path, ledger, _forwarding_uv())
 
     completed = subprocess.run(
@@ -677,9 +675,7 @@ def test_commit_msg_hook_fails_closed_without_a_message_file(
     assert "no readable commit-message file" in completed.stderr
 
 
-def test_pre_commit_hook_reports_a_leakguard_crash_as_a_crash(
-    tmp_path: Path, ledger: Path
-) -> None:
+def test_pre_commit_hook_reports_a_leakguard_crash_as_a_crash(tmp_path: Path, ledger: Path) -> None:
     """Exercise the real crash-to-3 path in ``leakguard.__main__``.
 
     The forwarding ``uv`` runs the real module. The ledger index is seeded so it
