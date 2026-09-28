@@ -14,6 +14,7 @@ expensuchis bootstrap                       # once, per ledger
 expensuchis identify statement.pdf          # which importer claims it?
 expensuchis extract --source MercadoPago statement.pdf
 expensuchis report  MercadoPago-20260925T143012Z-1a2b3c4d
+# open every account the batch posts to (see "Opening accounts"), then:
 expensuchis approve MercadoPago-20260925T143012Z-1a2b3c4d
 expensuchis append  MercadoPago-20260925T143012Z-1a2b3c4d
 bean-check "$EXPENSUCHIS_LEDGER_DIR/main.beancount"
@@ -50,6 +51,32 @@ requires the base to exist so that a typo in `EXPENSUCHIS_LEDGER_DIR` cannot sil
 split the ledger across two directories, each with its own partial history. So the
 quick path `mkdir -p`s the base first; the guard is deliberate and is not worked
 around by softening it.
+
+### Opening accounts
+
+`bootstrap` opens only `Equity:Opening-Balances` and `Assets:TransferenciaEnTransito`.
+Every other account is opened **by hand**, in `accounts.beancount`, dated before the
+first movement that uses it: the source's own accounts (a card's peso liability *and*
+its `USD` sibling, even if the first statement has no dollar rows) and every expense
+category the counterparty map names. The tool never opens an account on its own,
+for the same reason it never picks a category.
+
+A batch that posts to an unopened account is refused by `append` as
+`post-write-dirty` (every touched file is rolled back), and the refusal quotes only
+the first unknown account. To see them all before `append`, check the ledger with
+the staged batch included, from a scratch file that leaves the ledger untouched:
+
+```bash
+T=$(mktemp --suffix=.beancount)
+printf 'include "%s"\ninclude "%s"\n' "$EXPENSUCHIS_LEDGER_DIR/main.beancount" \
+  "$EXPENSUCHIS_LEDGER_DIR/staging/<batch-id>/proposed.beancount" > "$T"
+bean-check "$T" 2>&1 | rg -o "unknown account '[^']+'" | sort -u
+rm "$T"
+```
+
+An account that appears there by mistake (a typo in `counterparties.tsv`) is fixed by
+appending a corrected map row and re-running `extract` and `approve`, never by
+opening it.
 
 ## The review gate is a digest, not a prompt
 
@@ -364,6 +391,7 @@ point is that a professional is not a "personal service": the category is chosen
 - [ ] `bootstrap` ran once and the ledger passes `bean-check`.
 - [ ] `identify` names exactly one importer for the statement.
 - [ ] `extract` printed a batch id and a report path.
+- [ ] every account the batch posts to is opened in `accounts.beancount`.
 - [ ] the report was read (and edited, if needed) before `approve`.
 - [ ] `append` succeeded and `bean-check` is still clean.
 - [ ] no statement, ledger file or real financial datum is inside the repository.

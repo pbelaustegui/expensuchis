@@ -625,7 +625,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       is what is incomplete. Found by running the quick path instead of reading it. **Closed
       2026-09-25** — native review `review-83a9010a1ddd5288` approved with **no correction** (medium
       tier, one lens, 239 changed lines), commits `8c87137`, `67119cb`. See *T-04c delivered* below.
-- [ ] T-05a: **The Mercado Pago parser core — the format knowledge lives here.** Pure over
+- [x] T-05a: **The Mercado Pago parser core — the format knowledge lives here.** Pure over
       *extracted text* (no PDF library in the parser): movements with their running balance, and
       the five reconciliation checks (header arithmetic, sum of positives against *Entradas*,
       sum of negatives against *Salidas*, the running-balance chain, and the closing balance) as a
@@ -638,7 +638,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       2026-09-25** — commit `adc1095`, reviewed twice: `review-87443c8fe0b24ecb` (approved, then
       superseded by the fixture rewrite below) and `review-39398fe5ffe5a963` (approved with no
       correction). See *T-05a delivered* below.
-- [ ] T-05b: **The Mercado Pago importer wiring.** The thin `pypdfium2` extractor declared per
+- [x] T-05b: **The Mercado Pago importer wiring.** The thin `pypdfium2` extractor declared per
       source, the natural key (date + operation id + amount) recorded as `key:` metadata,
       resolution through `CounterpartyMap` with the refusal message shape T-04c pinned, and
       registration in `get_importers()`. — depends on T-05a.
@@ -848,6 +848,20 @@ market rate. Confirm the exact presentation against a real statement before enco
       now reports `entries: FAILED` with the masked message and fails only that file (RED: 1
       failed; GREEN: 959 passed / 7 skipped; real run unchanged). The WARNING (no non-UTF-8
       `--rows` test) is covered in the same commit; the SUGGESTION (docstring) is applied.
+      **First real import, 2026-09-28 (PR #19, branch `fix/card-identify-overlap`):** the real
+      Visa statement was refused as `ambiguous-importer`: `ProvinciaVisa.identify` claimed any
+      text containing `Liquidacion`, which a BBVA card statement carries too, and no test asked
+      every registered importer. Fixed in `21a5709` (Provincia yields whenever
+      `is_bbva_card_liquidacion` claims the file; a registry test pins exactly one claimant per
+      BBVA card fixture; RED: 2 failed with `['ProvinciaVisa', 'BBVACard']`; GREEN: 961 passed /
+      7 skipped, `ruff check` clean; assessed medium, `under_budget`). The owner then classified
+      the merchants in `counterparties.tsv`, opened the missing accounts by hand and appended
+      batch `BBVACard-20260928T051531Z-1d0e5b54`; `append`'s own gate means `bean-check` is
+      clean. Two `post-write-dirty` refusals on the way (`Liabilities:BBVA:P1:Visa`, then an
+      unopened expense category) exposed a docs gap, closed in the follow-up docs PR (branch
+      `docs/opening-accounts`, PR #19 was merged first): *Opening accounts* in
+      `docs/import-workflow.md`. Mastercard not imported yet. Provincia Visa's `identify`
+      on a real file after the fix is **not** yet re-verified.
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
@@ -2029,24 +2043,22 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    from `a8bc31e` once the relay works. **T-07 (BBVA) is closed as of 2026-09-28:** account and
    cards, each with a parser, its wiring and a real-file probe that passes; see the T-07 entry.
    The T-07f slice has no native review (relay failure, same as `fb189`), only a subagent review.
-   **Next:** load the real BBVA card merchants into `counterparties.tsv` (36 Visa, 2 Mastercard
-   unclassified) so a real import can run, then the open checklist units. Still open from T-08: the
+   **Done 2026-09-28:** the Visa merchants are classified and the first real BBVA Visa batch is
+   appended (PR #19). **Next:** import the Mastercard statement the same way, re-run `extract`
+   on a real Provincia Visa file to confirm PR #19 did not stop it being claimed, then the open
+   checklist units. Still open from T-08: the
    probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
-   unit and both delivery sections are the record. What remains of the feature is the next task in the
-   checklist — **T-03** (the MEP and CCL series) — plus the deferred T-01c/T-01d units and the
-   follow-ups below.
+   unit and both delivery sections are the record. (T-03, once named here as next, is closed.)
 2. **Follow-ups the review left open, in the order they matter:** the three *unproved* wiring paths
    above; the T-06a advisory (the extracto's redactor does not match the hyphenated CUIT form); the
    probe's multipath coverage and its parse-error message; and the residuals the parser records in its
    own docstring (the trailing-amount scanner's grouped integer part, the period window's one-year
    blind spot for a long plan, the plan key's dependence on merchant text, and the day-1 stand-in for
    an undated surcharge row).
-3. T-03 (MEP and CCL series) stays small and unblocked; the deflated view needs it whenever the
-   first real month is ingested.
-4. **T-01c** (`ruff format` drift across nine files) and **T-01d** (redact the leak guard's failure
-   output) remain open and deliberately untouched: both are cosmetic-or-control changes and belong
-   in their own reviewed units.
+3. T-03 (MEP and CCL series) is closed; the deflated view (T-N+1) consumes it.
+4. **T-01c** (`ruff format` drift across nine files) remains open and deliberately untouched: a
+   cosmetic change that belongs in its own reviewed unit. (T-01d is closed.)
 5. Still open: whether Mercado Pago issues a `RESUMEN DE CUENTA EN DÓLARES`, and whether it has a
    card statement separate from the account statement. Still open from T-06a: the hyphenated CUIT
    form (`20-12345678-9`) is not matched by the redactor.
