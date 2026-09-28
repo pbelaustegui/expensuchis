@@ -1043,8 +1043,63 @@ market rate. Confirm the exact presentation against a real statement before enco
       over time" view (multiple months) and the installments view (projecting the `installments`/
       `first_due`/`installment_amount` transaction metadata forward) — no design work done on
       either.
-- [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
+- [x] T-N+2: Double-counting guard: an assertion that every card settlement cancels
       liability and never creates an expense. — depends on T-04.
+      **Closed 2026-09-28.** Built as a native beancount plugin, not a CLI command, so it
+      runs inside `bean-check` itself rather than needing a separate invocation: registered
+      as `plugin "expensuchis.doublecount"`. Invariant (from the sign convention pinned above
+      in Decisions): a `Liabilities:*` posting with `units.number > 0` is always a settlement
+      under this model, never a purchase; such a posting forbids any `Expenses:*` posting in
+      the same transaction. This generalizes `test_settlement_contributes_no_expense_posting`
+      (T-02), which only checked the sample's hand-tagged `#card-settlement` transactions —
+      real imported data carries no such tag, so this needed a structural check instead.
+      New module `src/expensuchis/doublecount.py`; `bootstrap.py`'s `MAIN_CONTENT` now emits
+      the plugin line for every new ledger; `sample/family-model.beancount` wired the same
+      line in (no-op proof: `bean-check` stayed clean, the sample was already invariant-clean).
+      5 tests in `tests/test_doublecount.py`. Route: delegated direct (writer trigger: module +
+      bootstrap + sample + tests, 4 files). TDD strict, runner `uv run pytest`: RED was
+      `ModuleNotFoundError` with the new module moved aside; GREEN 977 passed / 7 skipped,
+      `ruff check .`/`ruff format --check .` clean, `bean-check` clean on both samples. Parent
+      independently confirmed end-to-end by mutating a copy of `sample/family-model.beancount`
+      to add an `Expenses:*` leg to a real settlement transaction and re-running `bean-check`
+      directly (not just the test suite): it printed the plugin's exact error with file/line,
+      no narration or payee leaked.
+      **Known limitation, recorded in the module's own docstring, not solved here:** any
+      debt-reducing `Liabilities:*` posting is treated as a settlement. A future card refund
+      or credit note would also reduce the liability and would legitimately pair with a
+      negative `Expenses:*` posting (reversing the original spend); this plugin cannot yet
+      tell that apart from a real settlement, because no refund importer or model decision
+      exists yet.
+      **Action still needed on the live ledger, by hand (the tool never edits it):** the
+      owner's real `main.beancount` was bootstrapped before this task and will not pick up the
+      plugin on its own. Add `plugin "expensuchis.doublecount"` to it (after the `option`
+      lines, before the `include` lines) to get this check on the real ledger too.
+
+      **Native review caught a real bug this pass, in T-N+1's own `summary.py`, before
+      merge.** RDD had gone unrun for several prior commits this session (owner asked "que
+      pasó con RDD?"); running the accumulated `review assess` from the session's start
+      (`e139ed2`) over 30 files / 1038 lines came back **high risk**, granted by the owner,
+      four lenses (risk/resilience/readability/reliability). Three lenses independently
+      flagged the same CRITICAL finding: `summary._load_entries` unpacked
+      `loader.load_file`'s errors list into an unused `_errors` and never checked it, so
+      `expensuchis summary` would total postings from a ledger that failed a beancount check
+      — including, concretely, **this very session's own `doublecount` plugin**: a
+      double-counted settlement would be flagged by `bean-check` yet still summed into a
+      normal-looking USD total by `summary`. Fixed in commit `b2a7a7c`
+      (`_load_entries` now raises `SummaryError(LEDGER_INVALID, ...)` when the loader
+      returns any errors), with two regression tests reproducing the exact scenario the
+      reviewers named (a plain unopened-account error, and a live `doublecount` violation).
+      RED confirmed by reverting the fix and re-running the new tests before trusting GREEN.
+      Targeted validation **approved** with no further correction; lineage
+      `review-3c4bb26211009475`, acknowledged and burned. Five non-blocking advisories left
+      open, in the order they matter: the live ledger not picking up the plugin without a
+      manual edit (restated above, already known); no test proves `bootstrap()`'s template
+      actually contains the plugin line; the FX cache is reloaded from disk once per posting
+      instead of once per `summarize()` call; the CLI's `--series` ternary silently resolves
+      anything that isn't literally `"mep"` to CCL rather than checking `"ccl"` explicitly.
+      **Process lesson:** RDD assessment must run after every work-unit commit, not batched
+      at the end of a session — it was skipped for four commits in a row here (T-01c,
+      Mastercard/Provincia-Visa tracker notes, T-N+1) before the owner asked about it.
 
 ## Acceptance criteria
 

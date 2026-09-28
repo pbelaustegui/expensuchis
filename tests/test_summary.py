@@ -217,3 +217,57 @@ def test_summarize_refuses_a_malformed_month(ledger: LedgerPaths) -> None:
     with pytest.raises(SummaryError) as excinfo:
         summary.summarize(ledger, "not-a-month", Series.MEP)
     assert excinfo.value.reason == summary.MONTH_INVALID
+
+
+def test_a_beancount_load_error_refuses_the_summary_instead_of_totalling_anyway(
+    ledger: LedgerPaths,
+) -> None:
+    """A plain loader error (an unopened account) must not be silently discarded.
+
+    Regression test for a review finding (R2-001/R3/R4-001 on
+    ``review-3c4bb26211009475``): ``_load_entries`` used to unpack and drop
+    beancount's own errors list, so ``summarize()`` would total postings from a
+    ledger that would itself fail ``bean-check``.
+    """
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 3, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "A" "a"\n'
+        '  key: "k1"\n'
+        "  Expenses:NuncaAbierta  1000.00 ARS\n"
+        "  Assets:Test:Caja      -1000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.summarize(ledger, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.LEDGER_INVALID
+
+
+def test_a_doublecount_plugin_violation_refuses_the_summary_too(ledger: LedgerPaths) -> None:
+    """The invariant this same project's own plugin enforces must not be bypassable.
+
+    If ``main.beancount`` registers ``expensuchis.doublecount`` (as
+    ``bootstrap.py`` now does for every new ledger) and a settlement transaction
+    violates it, ``summarize()`` must refuse rather than total the double-counted
+    expense into a normal-looking figure.
+    """
+    main = ledger.main()
+    main.write_text(
+        'plugin "expensuchis.doublecount"\n' + main.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 3, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "BBVA" "Bad settlement"\n'
+        '  key: "k1"\n'
+        "  Liabilities:Test:Visa  1000.00 ARS\n"
+        "  Expenses:Compras       1000.00 ARS\n"
+        "  Assets:Test:Caja      -2000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.summarize(ledger, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.LEDGER_INVALID

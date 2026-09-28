@@ -20,7 +20,11 @@ Two shapes for an ``Expenses:*`` posting, both settled in ``docs/accounting-mode
 A date the cached series cannot answer for (no cache at all, or no quote within
 :data:`expensuchis.fx.MAX_STALENESS_DAYS`) refuses the whole summary rather than
 silently dropping or estimating one posting -- the same fail-closed discipline as
-the reconciliation checks elsewhere in this project.
+the reconciliation checks elsewhere in this project. The same discipline covers
+the ledger load itself: a beancount error on ``main.beancount`` -- an unbalanced
+transaction, an unopened account, or a registered plugin such as
+:mod:`expensuchis.doublecount` flagging its own invariant -- refuses the summary
+too, rather than totalling postings from data ``bean-check`` would itself refuse.
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ from .paths import LedgerPaths
 __all__ = [
     "FX_CACHE_MISSING",
     "FX_RATE_NOT_FOUND",
+    "LEDGER_INVALID",
     "MAIN_MISSING",
     "MONTH_INVALID",
     "MonthlySummary",
@@ -49,6 +54,7 @@ __all__ = [
 #: Stable, greppable refusal reason codes. Never renumber or rename silently.
 MAIN_MISSING = "main-missing"
 MONTH_INVALID = "month-invalid"
+LEDGER_INVALID = "ledger-invalid"
 FX_CACHE_MISSING = "fx-cache-missing"
 FX_RATE_NOT_FOUND = "fx-rate-not-found"
 
@@ -88,7 +94,14 @@ def _load_entries(paths: LedgerPaths) -> list:
     main = paths.main()
     if not main.is_file():
         raise SummaryError(MAIN_MISSING, f"{main} does not exist.")
-    entries, _errors, _options = loader.load_file(main)
+    entries, errors, _options = loader.load_file(main)
+    if errors:
+        raise SummaryError(
+            LEDGER_INVALID,
+            f"the ledger failed {len(errors)} beancount check(s) (including any plugin, "
+            f"such as the double-counting guard); run bean-check for details before "
+            f"trusting a summary computed over it.",
+        )
     return list(entries)
 
 
@@ -116,7 +129,10 @@ def summarize(paths: LedgerPaths, month: str, series: fx.Series) -> MonthlySumma
 
     Raises:
         SummaryError: ``MONTH_INVALID`` for a malformed month, ``MAIN_MISSING`` when
-            the ledger was never bootstrapped, ``FX_CACHE_MISSING`` when ``series``
+            the ledger was never bootstrapped, ``LEDGER_INVALID`` when the ledger
+            fails a beancount check (including any registered plugin, such as the
+            double-counting guard) -- a summary is never computed over data
+            beancount itself would refuse, ``FX_CACHE_MISSING`` when ``series``
             has no local cache yet, or ``FX_RATE_NOT_FOUND`` when a non-USD posting's
             date falls outside the cached series' staleness bound.
     """

@@ -5,6 +5,9 @@
 
 option "title" "Expensuchis family model sample (synthetic)"
 option "operating_currency" "ARS"
+;; T-N+2: proves every settlement below is free of double counting on every
+;; bean-check, not only via the tagged-transaction test.
+plugin "expensuchis.doublecount"
 
 ;; --- P1: BBVA, Brubank, Mercado Pago (USD savings at BBVA and Brubank) ---
 2026-01-01 open Assets:BBVA:P1:Caja            ARS
