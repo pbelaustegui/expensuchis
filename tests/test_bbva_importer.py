@@ -719,8 +719,8 @@ def test_the_bbva_importer_is_registered_without_a_ledger(
     monkeypatch.delenv(ENV_VAR, raising=False)
     importers = get_importers()
     names = [importer.name for importer in importers]
-    assert names == ["MercadoPago", "Provincia", "ProvinciaVisa", "Brubank", "BBVA"]
-    assert isinstance(importers[-1], BBVAImporter)
+    assert names == ["MercadoPago", "Provincia", "ProvinciaVisa", "Brubank", "BBVA", "BBVACard"]
+    assert isinstance(importers[-2], BBVAImporter)
 
 
 def test_importing_the_importer_package_does_not_import_pypdfium2() -> None:

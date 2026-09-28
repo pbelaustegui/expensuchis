@@ -123,7 +123,9 @@ from .bbva import (
 from .pdf import read_creation_date, read_pdf
 
 __all__ = [
+    "MASTERCARD_ACCOUNT",
     "SOURCE",
+    "VISA_ACCOUNT",
     "AccountMappingError",
     "BBVAImporter",
     "CounterpartyClassificationError",
@@ -158,7 +160,10 @@ _ACCOUNT_TEMPLATES: dict[tuple[str, str], str] = {
 #: dollars or euros as pesos.
 _COMMODITIES: dict[str, str] = {"$": "ARS", "u$s": "USD", "eur": "EUR"}
 
-#: The card liabilities a settlement row posts to.
+#: The card liabilities a settlement row posts to. Also reused, unchanged, by
+#: :mod:`expensuchis.importers.bbva_card_importer` for a purchase's ARS leg
+#: (T-07e): the same liability a settlement here reduces is the one a card
+#: purchase there grows, so one pair of templates serves both importers.
 VISA_ACCOUNT = "Liabilities:BBVA:{person}:Visa"
 MASTERCARD_ACCOUNT = "Liabilities:BBVA:{person}:Mastercard"
 
