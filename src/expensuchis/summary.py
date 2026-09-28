@@ -46,14 +46,17 @@ __all__ = [
     "LEDGER_INVALID",
     "MAIN_MISSING",
     "MONTH_INVALID",
+    "RANGE_INVALID",
     "MonthlySummary",
     "SummaryError",
     "summarize",
+    "summarize_range",
 ]
 
 #: Stable, greppable refusal reason codes. Never renumber or rename silently.
 MAIN_MISSING = "main-missing"
 MONTH_INVALID = "month-invalid"
+RANGE_INVALID = "range-invalid"
 LEDGER_INVALID = "ledger-invalid"
 FX_CACHE_MISSING = "fx-cache-missing"
 FX_RATE_NOT_FOUND = "fx-rate-not-found"
@@ -124,6 +127,31 @@ def _usd_amount(
     return posting.units.number / lookup.used.sell
 
 
+def _month_total(
+    entries: list, year: int, month_number: int, series: fx.Series, cache: fx.FxCache
+) -> dict[str, Decimal]:
+    by_account: dict[str, Decimal] = {}
+    for entry in entries:
+        if not isinstance(entry, data.Transaction):
+            continue
+        if entry.date.year != year or entry.date.month != month_number:
+            continue
+        for posting in entry.postings:
+            if not posting.account.startswith(_EXPENSES_PREFIX):
+                continue
+            usd = _usd_amount(posting, series, cache, entry.date)
+            by_account[posting.account] = by_account.get(posting.account, Decimal(0)) + usd
+    return by_account
+
+
+def _month_key(year: int, month_number: int) -> str:
+    return f"{year:04d}-{month_number:02d}"
+
+
+def _next_month(year: int, month_number: int) -> tuple[int, int]:
+    return (year + 1, 1) if month_number == 12 else (year, month_number + 1)
+
+
 def summarize(paths: LedgerPaths, month: str, series: fx.Series) -> MonthlySummary:
     """Return the ``month`` (``YYYY-MM``) total of every ``Expenses:*`` account, in USD.
 
@@ -139,18 +167,46 @@ def summarize(paths: LedgerPaths, month: str, series: fx.Series) -> MonthlySumma
     year, month_number = _parse_month(month)
     entries = _load_entries(paths)
     cache = fx.FxCache(paths)
-
-    by_account: dict[str, Decimal] = {}
-    for entry in entries:
-        if not isinstance(entry, data.Transaction):
-            continue
-        if entry.date.year != year or entry.date.month != month_number:
-            continue
-        for posting in entry.postings:
-            if not posting.account.startswith(_EXPENSES_PREFIX):
-                continue
-            usd = _usd_amount(posting, series, cache, entry.date)
-            by_account[posting.account] = by_account.get(posting.account, Decimal(0)) + usd
-
+    by_account = _month_total(entries, year, month_number, series, cache)
     total = sum(by_account.values(), Decimal(0))
     return MonthlySummary(month=month, by_account=dict(sorted(by_account.items())), total=total)
+
+
+def summarize_range(
+    paths: LedgerPaths, from_month: str, to_month: str, series: fx.Series
+) -> list[MonthlySummary]:
+    """Return one :class:`MonthlySummary` per month from ``from_month`` to ``to_month``.
+
+    Both boundaries are ``YYYY-MM`` and inclusive. The ledger is loaded once for
+    the whole range, not once per month.
+
+    Raises:
+        SummaryError: ``MONTH_INVALID`` for a malformed boundary, ``RANGE_INVALID``
+            when ``from_month`` is after ``to_month``, or any reason ``summarize``
+            itself raises (``MAIN_MISSING``, ``LEDGER_INVALID``,
+            ``FX_CACHE_MISSING``, ``FX_RATE_NOT_FOUND``).
+    """
+    from_year, from_month_number = _parse_month(from_month)
+    to_year, to_month_number = _parse_month(to_month)
+    if (from_year, from_month_number) > (to_year, to_month_number):
+        raise SummaryError(
+            RANGE_INVALID, f"{from_month!r} is after {to_month!r}; --from must not be after --to."
+        )
+
+    entries = _load_entries(paths)
+    cache = fx.FxCache(paths)
+
+    results = []
+    year, month_number = from_year, from_month_number
+    while (year, month_number) <= (to_year, to_month_number):
+        by_account = _month_total(entries, year, month_number, series, cache)
+        total = sum(by_account.values(), Decimal(0))
+        results.append(
+            MonthlySummary(
+                month=_month_key(year, month_number),
+                by_account=dict(sorted(by_account.items())),
+                total=total,
+            )
+        )
+        year, month_number = _next_month(year, month_number)
+    return results

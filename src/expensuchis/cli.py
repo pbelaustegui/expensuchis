@@ -10,6 +10,7 @@ beangulp 0.2.0 ships no console scripts, so this module is the front end over it
     expensuchis approve <batch-id>
     expensuchis append <batch-id>
     expensuchis summary --month YYYY-MM --series {mep,ccl}
+    expensuchis summary --from YYYY-MM --to YYYY-MM --series {mep,ccl}
 
 Exit codes are stable: ``0`` success, ``1`` a refusal or validation failure (printed
 with a greppable reason code and one human sentence), ``2`` a usage error, ``141`` the
@@ -74,16 +75,36 @@ def build_parser() -> argparse.ArgumentParser:
     summary_parser = subparsers.add_parser(
         "summary", help="print the month's Expenses totals in USD at date"
     )
-    summary_parser.add_argument("--month", required=True, metavar="YYYY-MM")
+    summary_parser.add_argument("--month", metavar="YYYY-MM", help="a single month")
+    summary_parser.add_argument(
+        "--from", dest="from_month", metavar="YYYY-MM", help="range start, with --to"
+    )
+    summary_parser.add_argument(
+        "--to", dest="to_month", metavar="YYYY-MM", help="range end, with --from"
+    )
     summary_parser.add_argument("--series", required=True, choices=["mep", "ccl"])
 
     return parser
+
+
+def _validate_summary_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    has_month = args.month is not None
+    has_range = args.from_month is not None or args.to_month is not None
+    if has_month and has_range:
+        parser.error("--month cannot be combined with --from/--to")
+    if has_range and (args.from_month is None or args.to_month is None):
+        parser.error("--from and --to must be given together")
+    if not has_month and not has_range:
+        parser.error("summary requires --month, or --from and --to")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "summary":
+        _validate_summary_args(parser, args)
 
     try:
         paths = LedgerPaths()
@@ -156,10 +177,15 @@ def _dispatch(args: argparse.Namespace, paths: LedgerPaths) -> int:
 
     if args.command == "summary":
         series = Series.MEP if args.series == "mep" else Series.CCL
-        result = summary.summarize(paths, args.month, series)
-        for account, usd in result.by_account.items():
-            print(f"{account}\t{usd:.2f} USD")
-        print(f"total\t{result.total:.2f} USD")
+        if args.month is not None:
+            result = summary.summarize(paths, args.month, series)
+            for account, usd in result.by_account.items():
+                print(f"{account}\t{usd:.2f} USD")
+            print(f"total\t{result.total:.2f} USD")
+        else:
+            results = summary.summarize_range(paths, args.from_month, args.to_month, series)
+            for result in results:
+                print(f"{result.month}\t{result.total:.2f} USD")
         return 0
 
     raise AssertionError(f"unhandled command {args.command!r}")  # pragma: no cover

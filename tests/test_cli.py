@@ -268,3 +268,68 @@ def test_summary_refuses_when_the_fx_cache_is_missing(ledger: LedgerPaths, capsy
 
     assert cli.main(["summary", "--month", "2026-01", "--series", "mep"]) == 1
     assert summary.FX_CACHE_MISSING in capsys.readouterr().err
+
+
+def test_summary_range_prints_one_total_line_per_month(ledger: LedgerPaths, capsys) -> None:
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text(
+        "2020-01-01 open Assets:Test:Caja\n2020-01-01 open Expenses:Otros\n",
+        encoding="utf-8",
+    )
+    FxCache(
+        ledger,
+        source=_FakeFxSource(
+            {
+                Series.MEP: [
+                    Quote(dt.date(2026, 1, 1), Decimal(1000), Decimal(1000)),
+                    Quote(dt.date(2026, 2, 1), Decimal(1000), Decimal(1000)),
+                ]
+            }
+        ),
+    ).refresh(Series.MEP)
+    for day, month in ((5, 1), (5, 2)):
+        month_file = ledger.transaction_file(dt.date(2026, month, day))
+        month_file.write_text(
+            f'2026-{month:02d}-{day:02d} * "Store" "Stuff"\n'
+            '  key: "k1"\n'
+            "  Expenses:Otros       1000.00 ARS\n"
+            "  Assets:Test:Caja    -1000.00 ARS\n",
+            encoding="utf-8",
+        )
+
+    exit_code = cli.main(["summary", "--from", "2026-01", "--to", "2026-02", "--series", "mep"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "2026-01\t1.00 USD" in out
+    assert "2026-02\t1.00 USD" in out
+    assert "Expenses:Otros" not in out
+
+
+def test_summary_rejects_month_combined_with_range() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(
+            [
+                "summary",
+                "--month",
+                "2026-01",
+                "--from",
+                "2026-01",
+                "--to",
+                "2026-02",
+                "--series",
+                "mep",
+            ]
+        )
+    assert excinfo.value.code == 2
+
+
+def test_summary_rejects_from_without_to() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["summary", "--from", "2026-01", "--series", "mep"])
+    assert excinfo.value.code == 2
+
+
+def test_summary_rejects_no_month_and_no_range() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["summary", "--series", "mep"])
+    assert excinfo.value.code == 2

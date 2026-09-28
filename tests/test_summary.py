@@ -271,3 +271,81 @@ def test_a_doublecount_plugin_violation_refuses_the_summary_too(ledger: LedgerPa
     with pytest.raises(SummaryError) as excinfo:
         summary.summarize(ledger, "2026-03", Series.MEP)
     assert excinfo.value.reason == summary.LEDGER_INVALID
+
+
+def test_summarize_range_returns_one_summary_per_month_in_order(ledger: LedgerPaths) -> None:
+    _seed_fx(
+        ledger,
+        Series.MEP,
+        [
+            Quote(dt.date(2026, 1, 1), Decimal(1000), Decimal(1000)),
+            Quote(dt.date(2026, 3, 1), Decimal(1000), Decimal(1000)),
+        ],
+    )
+    _write_month(
+        ledger,
+        "2026-01",
+        '2026-01-01 * "A" "a"\n'
+        '  key: "k1"\n'
+        "  Expenses:Compras      1000.00 ARS\n"
+        "  Assets:Test:Caja     -1000.00 ARS\n",
+    )
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "B" "b"\n'
+        '  key: "k2"\n'
+        "  Expenses:Compras      3000.00 ARS\n"
+        "  Assets:Test:Caja     -3000.00 ARS\n",
+    )
+
+    results = summary.summarize_range(ledger, "2026-01", "2026-03", Series.MEP)
+
+    assert [r.month for r in results] == ["2026-01", "2026-02", "2026-03"]
+    assert results[0].total == Decimal(1)
+    assert results[1] == MonthlySummary(month="2026-02", by_account={}, total=Decimal(0))
+    assert results[2].total == Decimal(3)
+
+
+def test_summarize_range_of_a_single_month_matches_summarize(ledger: LedgerPaths) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 3, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "A" "a"\n'
+        '  key: "k1"\n'
+        "  Expenses:Compras      1000.00 ARS\n"
+        "  Assets:Test:Caja     -1000.00 ARS\n",
+    )
+
+    results = summary.summarize_range(ledger, "2026-03", "2026-03", Series.MEP)
+
+    assert results == [summary.summarize(ledger, "2026-03", Series.MEP)]
+
+
+def test_summarize_range_refuses_when_from_is_after_to(ledger: LedgerPaths) -> None:
+    with pytest.raises(SummaryError) as excinfo:
+        summary.summarize_range(ledger, "2026-03", "2026-01", Series.MEP)
+    assert excinfo.value.reason == summary.RANGE_INVALID
+
+
+def test_summarize_range_refuses_a_malformed_boundary(ledger: LedgerPaths) -> None:
+    with pytest.raises(SummaryError) as excinfo:
+        summary.summarize_range(ledger, "not-a-month", "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.MONTH_INVALID
+
+
+def test_summarize_range_propagates_a_beancount_load_error(ledger: LedgerPaths) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 3, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "A" "a"\n'
+        '  key: "k1"\n'
+        "  Expenses:NuncaAbierta  1000.00 ARS\n"
+        "  Assets:Test:Caja      -1000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.summarize_range(ledger, "2026-03", "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.LEDGER_INVALID
