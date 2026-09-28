@@ -765,9 +765,13 @@ market rate. Confirm the exact presentation against a real statement before enco
       **Card reconnaissance closed 2026-09-27** (masked): see *T-07 card reconnaissance* below.
       **Owner decisions 2026-09-27 (cards):** (1) the T-06b precedents carry over: `SU PAGO EN
       PESOS`/`SU PAGO EN USD` emit no entry (the extracto owns the cash movement), a `DÓLARES`
-      column amount posts to the card's USD liability with no `@` price, and each `C.NN/NN`
-      installment posts in the statement where it appears (the "cuotas a vencer" block is
-      informational); (2) the additional cardholder's section posts to the **same liability and
+      column amount posts to the card's USD liability with no `@` price, and a `C.NN/NN`
+      installment row records the **whole plan once**, at the purchase date, with the plan in
+      metadata, and a later statement's row of the same plan is recognized by its plan key and
+      not posted again (the "cuotas a vencer" block is informational). *Corrected 2026-09-27:*
+      this line first read "each installment posts in the statement where it appears", which
+      misstated the T-06b precedent (`docs/accounting-model.md`, *Installments*); the owner
+      re-confirmed the whole-plan rule once the error surfaced in T-07e; (2) the additional cardholder's section posts to the **same liability and
       the same shared `Expenses:*` categories** as the holder, with transaction metadata
       `holder: P2`; holder rows carry no `holder` key (absent means the card's owner). Rejected:
       per-person expense accounts (`Expenses:P2:*`), because `docs/accounting-model.md` keeps
