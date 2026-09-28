@@ -1039,10 +1039,22 @@ market rate. Confirm the exact presentation against a real statement before enco
       trigger: module + CLI + two test files). TDD strict, runner `uv run pytest`: RED was
       `ImportError` on `expensuchis.summary`, then `invalid choice: 'summary'` on the CLI parser;
       GREEN 972 passed / 7 skipped, `ruff check .` and `ruff format --check .` clean, `bean-check`
-      clean on both sample ledgers. **Still open, deliberately not built yet:** the "evolution
-      over time" view (multiple months) and the installments view (projecting the `installments`/
-      `first_due`/`installment_amount` transaction metadata forward) — no design work done on
-      either.
+      clean on both sample ledgers.
+      **Second deliverable done 2026-09-28**, the "evolution over time" view: `expensuchis
+      summary --from YYYY-MM --to YYYY-MM --series {mep,ccl}` prints one total-per-month line
+      across an inclusive range, mutually exclusive with `--month` (owner chose `--from`/`--to`
+      over `--months N`, and totals-only output over repeating the per-account breakdown for
+      every month). New `summary.summarize_range()` reuses the single-month logic (`_month_total`
+      helper) and loads the ledger once for the whole range rather than once per month; a new
+      `RANGE_INVALID` reason code covers `--from` after `--to`. CLI validates the `--month` /
+      `--from`+`--to` combination itself (usage error, exit 2) before dispatch. 5 tests in
+      `tests/test_summary.py`, 4 in `tests/test_cli.py`. Route: delegated direct (writer trigger:
+      module + CLI + two test files). TDD strict, runner `uv run pytest`: RED was
+      `AttributeError: module 'expensuchis.summary' has no attribute 'summarize_range'`; GREEN
+      988 passed / 7 skipped, `ruff check .` and `ruff format --check .` clean.
+      **Still open, deliberately not built yet:** the installments view (projecting the
+      `installments`/`first_due`/`installment_amount` transaction metadata forward) — no design
+      work done on it.
 - [x] T-N+2: Double-counting guard: an assertion that every card settlement cancels
       liability and never creates an expense. — depends on T-04.
       **Closed 2026-09-28.** Built as a native beancount plugin, not a CLI command, so it
