@@ -609,3 +609,57 @@ def test_installments_refuses_a_stale_fx_rate_for_the_target_month(ledger: Ledge
     with pytest.raises(SummaryError) as excinfo:
         summary.installments(ledger, "2026-03", Series.MEP)
     assert excinfo.value.reason == summary.FX_RATE_NOT_FOUND
+
+
+def test_installments_refuses_a_plan_missing_first_due_metadata(ledger: LedgerPaths) -> None:
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "Plan missing first_due"\n'
+        '  key: "k1"\n'
+        "  installments: 3\n"
+        "  installment_amount: 1000.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.installments(ledger, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.INSTALLMENT_META_INVALID
+
+
+def test_installments_refuses_a_plan_missing_installment_amount_metadata(
+    ledger: LedgerPaths,
+) -> None:
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "Plan missing installment_amount"\n'
+        '  key: "k1"\n'
+        "  installments: 3\n"
+        '  first_due: "2026-03"\n'
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.installments(ledger, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.INSTALLMENT_META_INVALID
+
+
+def test_installments_refuses_a_non_numeric_installments_value(ledger: LedgerPaths) -> None:
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "Plan with a bad installments count"\n'
+        '  key: "k1"\n'
+        '  installments: "six"\n'
+        '  first_due: "2026-03"\n'
+        "  installment_amount: 1000.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.installments(ledger, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.INSTALLMENT_META_INVALID

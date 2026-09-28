@@ -43,6 +43,7 @@ from .paths import LedgerPaths
 __all__ = [
     "FX_CACHE_MISSING",
     "FX_RATE_NOT_FOUND",
+    "INSTALLMENT_META_INVALID",
     "LEDGER_INVALID",
     "MAIN_MISSING",
     "MONTH_INVALID",
@@ -63,6 +64,7 @@ RANGE_INVALID = "range-invalid"
 LEDGER_INVALID = "ledger-invalid"
 FX_CACHE_MISSING = "fx-cache-missing"
 FX_RATE_NOT_FOUND = "fx-rate-not-found"
+INSTALLMENT_META_INVALID = "installment-meta-invalid"
 
 _EXPENSES_PREFIX = "Expenses:"
 _MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")
@@ -247,9 +249,29 @@ def _active_installment(
     the target month falls outside ``[first_due, first_due + installments - 1]`` --
     the plan is projected forward from metadata alone, never from postings, since
     no future-dated postings exist for an installment plan (see module docstring).
+
+    Raises:
+        SummaryError: ``INSTALLMENT_META_INVALID`` when ``"installments"`` is not
+            a whole number, or when ``"first_due"`` metadata is missing.
     """
-    total = int(entry.meta["installments"])
-    due_year, due_month = _parse_month(entry.meta["first_due"])
+    try:
+        total = int(entry.meta["installments"])
+    except (TypeError, ValueError) as exc:
+        raise SummaryError(
+            INSTALLMENT_META_INVALID,
+            f"{entry.date} {entry.payee or entry.narration!r}: 'installments' metadata "
+            f"is not a whole number: {entry.meta['installments']!r}.",
+        ) from exc
+
+    try:
+        first_due = entry.meta["first_due"]
+    except KeyError as exc:
+        raise SummaryError(
+            INSTALLMENT_META_INVALID,
+            f"{entry.date} {entry.payee or entry.narration!r}: missing 'first_due' metadata.",
+        ) from exc
+
+    due_year, due_month = _parse_month(first_due)
     number = _month_index(year, month_number) - _month_index(due_year, due_month) + 1
     if 1 <= number <= total:
         return number, total
@@ -273,10 +295,13 @@ def installments(paths: LedgerPaths, month: str, series: fx.Series) -> Installme
             ``first_due`` on some plan), ``MAIN_MISSING`` when the ledger was
             never bootstrapped, ``LEDGER_INVALID`` when the ledger fails a
             beancount check, ``FX_CACHE_MISSING`` when ``series`` has no local
-            cache yet, or ``FX_RATE_NOT_FOUND`` when the target month falls
+            cache yet, ``FX_RATE_NOT_FOUND`` when the target month falls
             outside the cached series' staleness bound -- a future month's rate
             legitimately may not exist yet, and that refuses loudly rather than
-            estimating one.
+            estimating one -- or ``INSTALLMENT_META_INVALID`` when a transaction
+            carrying ``installments`` metadata is missing its ``first_due`` or
+            ``installment_amount`` metadata, or ``installments`` is not a whole
+            number.
     """
     year, month_number = _parse_month(month)
     entries = _load_entries(paths)
@@ -293,7 +318,15 @@ def installments(paths: LedgerPaths, month: str, series: fx.Series) -> Installme
         if active is None:
             continue
         number, total = active
-        usd = _usd_amount(entry.meta["installment_amount"], series, cache, when)
+        try:
+            installment_amount = entry.meta["installment_amount"]
+        except KeyError as exc:
+            raise SummaryError(
+                INSTALLMENT_META_INVALID,
+                f"{entry.date} {entry.payee or entry.narration!r}: missing "
+                f"'installment_amount' metadata.",
+            ) from exc
+        usd = _usd_amount(installment_amount, series, cache, when)
         payee = entry.payee or entry.narration
         dedup_key = entry.meta.get("key", "")
         keyed_rows.append((payee, dedup_key, InstallmentRow(payee, number, total, usd)))

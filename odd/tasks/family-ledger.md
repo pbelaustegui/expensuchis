@@ -1073,7 +1073,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       tiebreak; a `None` payee falls back to `narration`. CLI wiring mirrors `summary` exactly:
       `--month` and `--series` both required, one line per row
       (`payee\tN/total\tamount:.2f USD`) then a `total` line. No new `SummaryError` reason codes.
-      21 tests in `tests/test_summary.py`, 3 in `tests/test_cli.py` (plus updating
+      16 tests in `tests/test_summary.py`, 3 in `tests/test_cli.py` (plus updating
       `test_parser_exposes_every_command`). Route: delegated direct (writer trigger: module + CLI
       + two test files). TDD strict, runner `uv run pytest`: RED was `ImportError: cannot import
       name 'InstallmentRow'` on `expensuchis.summary`, then `invalid choice: 'installments'` on
