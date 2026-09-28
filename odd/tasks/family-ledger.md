@@ -674,7 +674,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       case (b) against `…:VisaUSD` with no `@` price, and charge rows are recognized by shape
       (`Impuestos:Sellos` / `Impuestos:Percepciones`), any other shape refusing the import. The
       geometry and the two-sum reconciliation gate: see *T-06b reconnaissance* below.
-- [ ] T-07: BBVA importers, **format confirmed against real files**: the account
+- [x] T-07: BBVA importers, **format confirmed against real files**: the account
       (`DÉBITO`/`CRÉDITO`/`SALDO`) and the Visa and Mastercard statements (**`PESOS` and
       `DÓLARES` columns**, `C.NN/NN` installments). Requires adding `pypdfium2` as a declared
       runtime dependency; `pypdf` cannot read these files. — depends on T-04.
@@ -824,7 +824,30 @@ market rate. Confirm the exact presentation against a real statement before enco
       Advisory follow-ups, all informational: R2-001/R2-002 and R2-003 (readability),
       R3-FIRST-DUE-MONTH (`first_due` uses the close date as a stand-in for `VENCIMIENTO`),
       R3-PLAN-DEDUP, R3-TOKEN-LOOP (WARNING), R4-001 and R4-002 (WARNING). Published as PR #17,
-      CI green. **Next: T-07f, the real-file probe.**
+      CI green.
+      **T-07f delivered 2026-09-28 — T-07 closed.** `tools/probe_bbva_cards.py` +
+      `tests/test_probe_bbva_cards.py` (`180007f`, env var `EXPENSUCHIS_BBVA_CARD_STATEMENTS`,
+      `--rows` reads the positioned-row fixture format as the test seam): it runs the T-07e
+      `build_entries` over the real cards with a stub counterparty map and prints masked
+      aggregates only (movement and entry counts, entries per card liability account, plans,
+      charge kinds, holder-metadata counts, a distinct-merchant count, natural-key uniqueness and
+      the seven checks); a non-card PDF is reported and does not fail the run. The person is a
+      fixed `PERSONA` placeholder, since the probe measures shape, not routing. RED: collection
+      error (missing module); GREEN: 957 passed / 7 skipped, `ruff` clean. **Real run, exit 0:**
+      Mastercard 4 entries; Visa 51 entries (40 `Visa`, 11 `VisaUSD`, 5 plans, 2 IVA, 3
+      Percepciones, 4 with `holder`), keys unique, all seven checks ok on both, and both account
+      extractos reported as not a card; identical to the T-07e run. Native review
+      `review-74adab2daf97c98a` (medium, reliability) **never ran**: the host-relay reviewer
+      refused the review prompt twice as a suspected prompt injection (the `fb189` failure again).
+      Owner chose to abandon it (`operator_disposition`, no results captured; the leftover
+      candidate view was deleted by hand for the privacy guard) and review through the
+      `review-reliability` subagent instead. That review is **not** native authority. It found
+      one CRITICAL, confirmed and fixed in `25bd234`: `build_entries` was called unguarded,
+      although it refuses on its own (a purchase with no merchant identity left after
+      normalization), which would have crashed the run and skipped the remaining statements; it
+      now reports `entries: FAILED` with the masked message and fails only that file (RED: 1
+      failed; GREEN: 959 passed / 7 skipped; real run unchanged). The WARNING (no non-UTF-8
+      `--rows` test) is covered in the same commit; the SUGGESTION (docstring) is applied.
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
@@ -2003,10 +2026,11 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    suspected prompt injection. It was abandoned (`operator_disposition`, no results captured), and
    its read-only candidate view was deleted by hand because it held copies of `sample/*.beancount`
    that the privacy pre-commit refuses. That is a transport failure, not an approval: re-review
-   from `a8bc31e` once the relay works. **Next: T-07e, the BBVA card importer wiring;** T-07d (the card parser) is delivered and
-   passes against both real cards (reconnaissance and owner decisions recorded in the
-   T-07 entry); the account side (T-07a/b/c) is delivered and passes
-   against the real files, see the T-07 entry. Still open from T-08: the
+   from `a8bc31e` once the relay works. **T-07 (BBVA) is closed as of 2026-09-28:** account and
+   cards, each with a parser, its wiring and a real-file probe that passes; see the T-07 entry.
+   The T-07f slice has no native review (relay failure, same as `fb189`), only a subagent review.
+   **Next:** load the real BBVA card merchants into `counterparties.tsv` (36 Visa, 2 Mastercard
+   unclassified) so a real import can run, then the open checklist units. Still open from T-08: the
    probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. What remains of the feature is the next task in the
