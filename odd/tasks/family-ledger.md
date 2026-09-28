@@ -1043,8 +1043,37 @@ market rate. Confirm the exact presentation against a real statement before enco
       over time" view (multiple months) and the installments view (projecting the `installments`/
       `first_due`/`installment_amount` transaction metadata forward) — no design work done on
       either.
-- [ ] T-N+2: Double-counting guard: an assertion that every card settlement cancels
+- [x] T-N+2: Double-counting guard: an assertion that every card settlement cancels
       liability and never creates an expense. — depends on T-04.
+      **Closed 2026-09-28.** Built as a native beancount plugin, not a CLI command, so it
+      runs inside `bean-check` itself rather than needing a separate invocation: registered
+      as `plugin "expensuchis.doublecount"`. Invariant (from the sign convention pinned above
+      in Decisions): a `Liabilities:*` posting with `units.number > 0` is always a settlement
+      under this model, never a purchase; such a posting forbids any `Expenses:*` posting in
+      the same transaction. This generalizes `test_settlement_contributes_no_expense_posting`
+      (T-02), which only checked the sample's hand-tagged `#card-settlement` transactions —
+      real imported data carries no such tag, so this needed a structural check instead.
+      New module `src/expensuchis/doublecount.py`; `bootstrap.py`'s `MAIN_CONTENT` now emits
+      the plugin line for every new ledger; `sample/family-model.beancount` wired the same
+      line in (no-op proof: `bean-check` stayed clean, the sample was already invariant-clean).
+      5 tests in `tests/test_doublecount.py`. Route: delegated direct (writer trigger: module +
+      bootstrap + sample + tests, 4 files). TDD strict, runner `uv run pytest`: RED was
+      `ModuleNotFoundError` with the new module moved aside; GREEN 977 passed / 7 skipped,
+      `ruff check .`/`ruff format --check .` clean, `bean-check` clean on both samples. Parent
+      independently confirmed end-to-end by mutating a copy of `sample/family-model.beancount`
+      to add an `Expenses:*` leg to a real settlement transaction and re-running `bean-check`
+      directly (not just the test suite): it printed the plugin's exact error with file/line,
+      no narration or payee leaked.
+      **Known limitation, recorded in the module's own docstring, not solved here:** any
+      debt-reducing `Liabilities:*` posting is treated as a settlement. A future card refund
+      or credit note would also reduce the liability and would legitimately pair with a
+      negative `Expenses:*` posting (reversing the original spend); this plugin cannot yet
+      tell that apart from a real settlement, because no refund importer or model decision
+      exists yet.
+      **Action still needed on the live ledger, by hand (the tool never edits it):** the
+      owner's real `main.beancount` was bootstrapped before this task and will not pick up the
+      plugin on its own. Add `plugin "expensuchis.doublecount"` to it (after the `option`
+      lines, before the `include` lines) to get this check on the real ledger too.
 
 ## Acceptance criteria
 

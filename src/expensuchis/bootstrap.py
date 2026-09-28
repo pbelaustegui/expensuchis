@@ -47,6 +47,9 @@ MAIN_CONTENT = """\
 ;; accounts.beancount before importing.
 option "title" "Expensuchis household ledger"
 option "operating_currency" "ARS"
+;; T-N+2: proves a card settlement never also creates an expense. Runs on every
+;; bean-check; see src/expensuchis/doublecount.py for the invariant it checks.
+plugin "expensuchis.doublecount"
 include "accounts.beancount"
 include "transactions/*.beancount"
 """
