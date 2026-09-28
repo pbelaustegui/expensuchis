@@ -44,6 +44,9 @@ from .importers.bbva_importer import (
     CounterpartyClassificationError as _BBVACounterpartyClassificationError,
 )
 from .importers.bbva_importer import (
+    SourceAccountError as _BBVASourceAccountError,
+)
+from .importers.bbva_importer import (
     StatementReadError as _BBVAStatementReadError,
 )
 from .importers.brubank_importer import (
@@ -148,7 +151,14 @@ _APPEND = "append.json"
 #:
 #: These are the exception types whose ``str()`` the ``importer-raised`` refusal
 #: preserves; every other importer exception is reduced to its class name
-#: (R1-002/R3-002 below).
+#: (R1-002/R3-002 below). ``_BBVASourceAccountError`` closes a T-07b review
+#: follow-up (BBVA's ``SourceAccountError`` was missing here, so a bad path
+#: reached the CLI as a bare class name instead of naming the expected
+#: layout): the BBVA card importer (T-07e) reuses ``bbva_importer``'s own
+#: ``SourceAccountError``/``CounterpartyClassificationError``/``StatementReadError``
+#: directly rather than redefining them (same path layout, same safety
+#: contract), so this one entry -- and the two already above it -- cover both
+#: BBVA importers.
 _PRESERVED_MESSAGE_TYPES: tuple[type[Exception], ...] = (
     _MercadoPagoCounterpartyClassificationError,
     _MercadoPagoStatementReadError,
@@ -161,6 +171,7 @@ _PRESERVED_MESSAGE_TYPES: tuple[type[Exception], ...] = (
     _BBVACounterpartyClassificationError,
     _BBVAStatementReadError,
     _BBVAAccountMappingError,
+    _BBVASourceAccountError,
 )
 
 #: Fallback statement identifier for `importer-raised` when the statement's bytes

@@ -534,7 +534,7 @@ def test_the_brubank_importer_is_registered_without_a_ledger(
     monkeypatch.delenv(ENV_VAR, raising=False)
     importers = get_importers()
     names = [importer.name for importer in importers]
-    assert names == ["MercadoPago", "Provincia", "ProvinciaVisa", "Brubank", "BBVA"]
+    assert names == ["MercadoPago", "Provincia", "ProvinciaVisa", "Brubank", "BBVA", "BBVACard"]
     assert isinstance(importers[3], BrubankImporter)
 
 

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from beangulp import Importer
 
+from .bbva_card_importer import BBVACardImporter
 from .bbva_importer import BBVAImporter
 from .brubank_importer import BrubankImporter
 from .mercadopago_importer import MercadoPagoImporter
@@ -44,10 +45,11 @@ def get_importers() -> list[Importer]:
     """Return one fresh importer instance per supported source.
 
     Mercado Pago, the Provincia account extracto, the Provincia card
-    liquidación, the Brubank account statement and the BBVA consolidated
-    account statement (T-07b) are registered. The pipeline resolves its
-    default importers through this function, so registering a source is a
-    one-line change that every command sees.
+    liquidación, the Brubank account statement, the BBVA consolidated account
+    statement (T-07b) and the BBVA Visa/Mastercard card liquidación (T-07e)
+    are registered. The pipeline resolves its default importers through this
+    function, so registering a source is a one-line change that every
+    command sees.
     """
     return [
         MercadoPagoImporter(),
@@ -55,4 +57,5 @@ def get_importers() -> list[Importer]:
         ProvinciaVisaImporter(),
         BrubankImporter(),
         BBVAImporter(),
+        BBVACardImporter(),
     ]
