@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 from beancount.core import data
 
-from expensuchis.importers.bbva_card import CHECK_NAMES
+from expensuchis.importers.bbva_card import CHECK_NAMES, CardLiquidacionParseError
 
 PROBE_PATH = Path(__file__).resolve().parents[1] / "tools" / "probe_bbva_cards.py"
 CARD_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "bbva_card"
@@ -269,6 +269,45 @@ def test_a_key_uniqueness_failure_is_reported_not_a_crash(capsys, monkeypatch) -
     assert "natural-keys: FAILED" in combined
     assert "duplicates: 1" in combined
     assert str(path) not in combined
+
+
+def test_a_build_entries_refusal_is_reported_and_the_run_continues(capsys, monkeypatch) -> None:
+    # build_entries raises CardLiquidacionParseError on its own, independent of the
+    # counterparty map: a purchase whose description has no merchant identity left
+    # after normalization. The probe must refuse that file, not crash the run.
+    path = CARD_FIXTURES / "visa_full.txt"
+    other_path = CARD_FIXTURES / "mastercard_full.txt"
+    real_build_entries = probe.build_entries
+
+    def _refuse_visa(liquidacion, person, counterparty_map):
+        if liquidacion.brand.value == "visa":
+            raise CardLiquidacionParseError("page 1 row 1: no merchant identity")
+        return real_build_entries(liquidacion, person, counterparty_map)
+
+    monkeypatch.setattr(probe, "build_entries", _refuse_visa)
+
+    assert probe.main(["--rows", str(path), str(other_path)]) == 1
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "refused (class: CardLiquidacionParseError)" in combined
+    assert "entries: FAILED (page 1 row 1: no merchant identity)" in combined
+    assert "brand=mastercard" in combined
+    assert str(path) not in combined
+    assert path.name not in combined
+
+
+def test_non_utf8_rows_name_only_the_exception_class(capsys, tmp_path: Path) -> None:
+    path = tmp_path / "private-name.txt"
+    path.write_bytes(b"PAGE 1\nROW\n\xff\xfe 20.0 86.0\n")
+
+    assert probe.main(["--rows", str(path)]) == 1
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "UnicodeDecodeError" in combined
+    assert str(path) not in combined
+    assert path.name not in combined
 
 
 # --------------------------------------------------------------------------- usage

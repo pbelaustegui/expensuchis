@@ -26,7 +26,11 @@ amount, balance or the statement's filename. It prints, per statement:
   this probe measures the importer's *shape*, never its classification, so a
   :class:`~expensuchis.importers.bbva_card_importer.CounterpartyClassificationError`
   escaping anyway is a bug in the probe or the importer, not an expected
-  outcome, and is allowed to propagate loudly;
+  outcome, and is allowed to propagate loudly. ``build_entries`` can still
+  refuse on its own, independent of the map: a purchase with no merchant
+  identity left after normalization raises
+  :class:`~expensuchis.importers.bbva_card.CardLiquidacionParseError`, which
+  is reported as ``entries: FAILED`` with its masked message and fails the file;
 * entries per card liability account (Visa ARS, Visa USD, Mastercard ARS,
   Mastercard USD) -- counts only, never balances;
 * the count of installment plans (one entry per plan, T-06b's model);
@@ -261,7 +265,14 @@ def _process_statement(source_hash: str, pages: int, rows: tuple[PositionedRow, 
     print(f"statement {source_hash} pages={pages} brand={liquidacion.brand.value}")
 
     counterparty_map = _StubCounterpartyMap()
-    entries = build_entries(liquidacion, _PLACEHOLDER_PERSON, counterparty_map)
+    try:
+        entries = build_entries(liquidacion, _PLACEHOLDER_PERSON, counterparty_map)
+    except CardLiquidacionParseError as exc:
+        # Independent of the stub map: a purchase with no merchant identity
+        # left after normalization. The message is masked (page and row only).
+        print(f"statement {source_hash} pages={pages} refused (class: CardLiquidacionParseError)")
+        print(f"entries: FAILED ({exc})")
+        return False
     keys_ok = _print_entry_aggregates(liquidacion, entries, counterparty_map)
     _print_checks(liquidacion.checks)
     return keys_ok
