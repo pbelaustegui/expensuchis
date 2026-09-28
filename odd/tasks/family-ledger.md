@@ -2051,9 +2051,10 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    cards, each with a parser, its wiring and a real-file probe that passes; see the T-07 entry.
    The T-07f slice has no native review (relay failure, same as `fb189`), only a subagent review.
    **Done 2026-09-28:** the Visa merchants are classified and the first real BBVA Visa batch is
-   appended (PR #19). **Next:** import the Mastercard statement the same way, re-run `extract`
-   on a real Provincia Visa file to confirm PR #19 did not stop it being claimed, then the open
-   checklist units. Still open from T-08: the
+   appended (PR #19). **Done 2026-09-28:** the Mastercard statement was imported the same way
+   (classify → open accounts → approve → append); owner confirmed `append` and `bean-check` both
+   passed clean. **Next:** re-run `extract` on a real Provincia Visa file to confirm PR #19 did
+   not stop it being claimed, then the open checklist units. Still open from T-08: the
    probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. (T-03, once named here as next, is closed.)
