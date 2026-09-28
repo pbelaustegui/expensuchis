@@ -1,0 +1,140 @@
+"""The monthly Expenses-in-USD-at-date summary (T-N+1, first deliverable).
+
+**Deflation is a view, never a stored value** (see ``odd/tasks/family-ledger.md``,
+Decisions): this module reads the ledger and the cached FX series and computes a
+USD figure at read time. Nothing here writes to the ledger.
+
+Two shapes for an ``Expenses:*`` posting, both settled in ``docs/accounting-model.md``:
+
+* **Already USD.** A posting whose ``units.currency`` is ``USD`` already carries the
+  real dollar amount, whether or not it also carries an ``@`` price. That price is
+  the *administrative* rate the statement used to book the ARS liability leg (an
+  Argentine card's USD purchase composes tax and perception components that a
+  market rate does not reproduce); it is never reapplied here.
+* **ARS (or any other non-USD currency).** Converted through the historical FX
+  series (:mod:`expensuchis.fx`) at the transaction's own date, using the *sell*
+  ("venta") side of the quote: venta is what it would have cost to acquire that
+  many US dollars on that date, which is the plain reading of "this ARS expense
+  equals N hard-currency dollars."
+
+A date the cached series cannot answer for (no cache at all, or no quote within
+:data:`expensuchis.fx.MAX_STALENESS_DAYS`) refuses the whole summary rather than
+silently dropping or estimating one posting -- the same fail-closed discipline as
+the reconciliation checks elsewhere in this project.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import datetime as dt
+import re
+from decimal import Decimal
+
+from beancount import loader
+from beancount.core import data
+
+from . import fx
+from .paths import LedgerPaths
+
+__all__ = [
+    "FX_CACHE_MISSING",
+    "FX_RATE_NOT_FOUND",
+    "MAIN_MISSING",
+    "MONTH_INVALID",
+    "MonthlySummary",
+    "SummaryError",
+    "summarize",
+]
+
+#: Stable, greppable refusal reason codes. Never renumber or rename silently.
+MAIN_MISSING = "main-missing"
+MONTH_INVALID = "month-invalid"
+FX_CACHE_MISSING = "fx-cache-missing"
+FX_RATE_NOT_FOUND = "fx-rate-not-found"
+
+_EXPENSES_PREFIX = "Expenses:"
+_MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")
+
+
+class SummaryError(RuntimeError):
+    """A refused summary, carrying a stable ``reason`` code."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.message = message
+
+
+@dataclasses.dataclass(frozen=True)
+class MonthlySummary:
+    """One month's ``Expenses:*`` totals in USD, by full account name."""
+
+    month: str
+    by_account: dict[str, Decimal]
+    total: Decimal
+
+
+def _parse_month(month: str) -> tuple[int, int]:
+    match = _MONTH_RE.match(month)
+    if match is None:
+        raise SummaryError(MONTH_INVALID, f"{month!r} is not a valid YYYY-MM month.")
+    year, month_number = int(match.group(1)), int(match.group(2))
+    if not 1 <= month_number <= 12:
+        raise SummaryError(MONTH_INVALID, f"{month!r} is not a valid YYYY-MM month.")
+    return year, month_number
+
+
+def _load_entries(paths: LedgerPaths) -> list:
+    main = paths.main()
+    if not main.is_file():
+        raise SummaryError(MAIN_MISSING, f"{main} does not exist.")
+    entries, _errors, _options = loader.load_file(main)
+    return list(entries)
+
+
+def _usd_amount(
+    posting: data.Posting, series: fx.Series, cache: fx.FxCache, when: dt.date
+) -> Decimal:
+    if posting.units.currency == "USD":
+        return posting.units.number
+
+    try:
+        cached = cache.load(series)
+    except fx.CacheError as exc:
+        raise SummaryError(FX_CACHE_MISSING, str(exc)) from exc
+
+    try:
+        lookup = cached.rate_at(when)
+    except fx.RateNotFoundError as exc:
+        raise SummaryError(FX_RATE_NOT_FOUND, str(exc)) from exc
+
+    return posting.units.number / lookup.used.sell
+
+
+def summarize(paths: LedgerPaths, month: str, series: fx.Series) -> MonthlySummary:
+    """Return the ``month`` (``YYYY-MM``) total of every ``Expenses:*`` account, in USD.
+
+    Raises:
+        SummaryError: ``MONTH_INVALID`` for a malformed month, ``MAIN_MISSING`` when
+            the ledger was never bootstrapped, ``FX_CACHE_MISSING`` when ``series``
+            has no local cache yet, or ``FX_RATE_NOT_FOUND`` when a non-USD posting's
+            date falls outside the cached series' staleness bound.
+    """
+    year, month_number = _parse_month(month)
+    entries = _load_entries(paths)
+    cache = fx.FxCache(paths)
+
+    by_account: dict[str, Decimal] = {}
+    for entry in entries:
+        if not isinstance(entry, data.Transaction):
+            continue
+        if entry.date.year != year or entry.date.month != month_number:
+            continue
+        for posting in entry.postings:
+            if not posting.account.startswith(_EXPENSES_PREFIX):
+                continue
+            usd = _usd_amount(posting, series, cache, entry.date)
+            by_account[posting.account] = by_account.get(posting.account, Decimal(0)) + usd
+
+    total = sum(by_account.values(), Decimal(0))
+    return MonthlySummary(month=month, by_account=dict(sorted(by_account.items())), total=total)
