@@ -1022,7 +1022,7 @@ market rate. Confirm the exact presentation against a real statement before enco
       `tests/test_brubank_parser.py` (4 new tests). RED (fix reverted, tests only): 3 failed / 61
       passed; GREEN: 752 passed / 2 skipped, `ruff check` clean. Route: delegated direct (writer
       trigger: parser + test file, non-trivial). Follow-ups (2) and (3) are untouched — still open.
-- [ ] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
+- [x] T-N+1: Deflated CLI report: month total in USD at date, evolution over time, and an
       installments view. — depends on T-03, T-04.
       **First deliverable done 2026-09-28** (per the 2026-09-24 decision that T-N+1's minimum
       deliverable is a single report, not a reporting suite): `expensuchis summary --month
@@ -1052,9 +1052,34 @@ market rate. Confirm the exact presentation against a real statement before enco
       module + CLI + two test files). TDD strict, runner `uv run pytest`: RED was
       `AttributeError: module 'expensuchis.summary' has no attribute 'summarize_range'`; GREEN
       988 passed / 7 skipped, `ruff check .` and `ruff format --check .` clean.
-      **Still open, deliberately not built yet:** the installments view (projecting the
-      `installments`/`first_due`/`installment_amount` transaction metadata forward) — no design
-      work done on it.
+      **Third deliverable done 2026-09-28, the installments view, closing T-N+1:** `expensuchis
+      installments --month YYYY-MM --series {mep,ccl}` lists every installment plan with a
+      cuota due that month, projected forward from the purchase transaction's own
+      `installments`/`first_due`/`installment_amount` metadata — there are no future-dated
+      postings for an installment plan, the whole purchase is booked once at purchase time (per
+      the confirmed data model). A plan is active in month `M` iff `1 <= N <= installments`,
+      where `N` is the 1-indexed distance from `first_due` to `M`. The owner confirmed (already
+      decided, not re-asked): the per-cuota amount is shown in USD, same conversion rule as
+      `summary --month` (an already-USD amount passes through, anything else converts through
+      the cached FX series at the *venta* side) — using the first day of the report month as the
+      lookup date, since a projected cuota has no posting date of its own; a future month's FX
+      rate legitimately may not exist yet, and that refuses (`FX_RATE_NOT_FOUND`/
+      `FX_CACHE_MISSING`) rather than estimating. No `--from`/`--to` for this view (owner
+      explicitly did not choose that combination). New `summary.InstallmentRow`,
+      `summary.InstallmentsSummary`, `summary.installments()` (reusing `_load_entries`,
+      `_parse_month`, `_usd_amount` — refactored to take a bare `Amount` instead of a `Posting`
+      so it also serves the installments path — and a new `_month_index` helper for the
+      first_due-to-target-month distance). Rows sorted by payee, then by the plan's `key` meta as
+      tiebreak; a `None` payee falls back to `narration`. CLI wiring mirrors `summary` exactly:
+      `--month` and `--series` both required, one line per row
+      (`payee\tN/total\tamount:.2f USD`) then a `total` line. No new `SummaryError` reason codes.
+      21 tests in `tests/test_summary.py`, 3 in `tests/test_cli.py` (plus updating
+      `test_parser_exposes_every_command`). Route: delegated direct (writer trigger: module + CLI
+      + two test files). TDD strict, runner `uv run pytest`: RED was `ImportError: cannot import
+      name 'InstallmentRow'` on `expensuchis.summary`, then `invalid choice: 'installments'` on
+      the CLI parser; GREEN 1004 passed / 7 skipped, `ruff check .` and `ruff format --check .`
+      clean, `bean-check` clean on both sample ledgers (untouched by this change). **T-N+1
+      closed** — all three deliverables shipped.
 - [x] T-N+2: Double-counting guard: an assertion that every card settlement cancels
       liability and never creates an expense. — depends on T-04.
       **Closed 2026-09-28.** Built as a native beancount plugin, not a CLI command, so it

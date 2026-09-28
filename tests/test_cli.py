@@ -106,6 +106,7 @@ def test_parser_exposes_every_command() -> None:
         "approve",
         "append",
         "summary",
+        "installments",
     }
 
 
@@ -333,3 +334,74 @@ def test_summary_rejects_no_month_and_no_range() -> None:
     with pytest.raises(SystemExit) as excinfo:
         cli.main(["summary", "--series", "mep"])
     assert excinfo.value.code == 2
+
+
+def test_installments_command_prints_rows_and_total(ledger: LedgerPaths, capsys) -> None:
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text(
+        "2020-01-01 open Assets:Test:Caja\n"
+        "2020-01-01 open Expenses:Otros\n"
+        "2020-01-01 open Liabilities:Test:Visa\n",
+        encoding="utf-8",
+    )
+    FxCache(
+        ledger,
+        source=_FakeFxSource(
+            {Series.MEP: [Quote(dt.date(2026, 2, 1), Decimal(1000), Decimal(1000))]}
+        ),
+    ).refresh(Series.MEP)
+    month_file = ledger.transaction_file(dt.date(2026, 1, 5))
+    month_file.write_text(
+        '2026-01-05 * "Store" "Washing machine"\n'
+        '  key: "k1"\n'
+        "  installments: 6\n"
+        '  first_due: "2026-02"\n'
+        "  installment_amount: 500.00 ARS\n"
+        "  Expenses:Otros         3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+        encoding="utf-8",
+    )
+
+    assert cli.main(["installments", "--month", "2026-02", "--series", "mep"]) == 0
+    out = capsys.readouterr().out
+    assert "Store\t1/6\t0.50 USD" in out
+    assert "total\t0.50 USD" in out
+
+
+def test_installments_command_prints_only_total_when_no_plan_is_due(
+    ledger: LedgerPaths, capsys
+) -> None:
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text(
+        "2020-01-01 open Assets:Test:Caja\n2020-01-01 open Expenses:Otros\n",
+        encoding="utf-8",
+    )
+    capsys.readouterr()
+
+    assert cli.main(["installments", "--month", "2026-02", "--series", "mep"]) == 0
+    out = capsys.readouterr().out
+    assert out == "total\t0.00 USD\n"
+
+
+def test_installments_refuses_when_the_fx_cache_is_missing(ledger: LedgerPaths, capsys) -> None:
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text(
+        "2020-01-01 open Assets:Test:Caja\n"
+        "2020-01-01 open Expenses:Otros\n"
+        "2020-01-01 open Liabilities:Test:Visa\n",
+        encoding="utf-8",
+    )
+    month_file = ledger.transaction_file(dt.date(2026, 1, 5))
+    month_file.write_text(
+        '2026-01-05 * "Store" "Washing machine"\n'
+        '  key: "k1"\n'
+        "  installments: 6\n"
+        '  first_due: "2026-01"\n'
+        "  installment_amount: 500.00 ARS\n"
+        "  Expenses:Otros         3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+        encoding="utf-8",
+    )
+
+    assert cli.main(["installments", "--month", "2026-01", "--series", "mep"]) == 1
+    assert summary.FX_CACHE_MISSING in capsys.readouterr().err
