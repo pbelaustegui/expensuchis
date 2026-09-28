@@ -1080,6 +1080,28 @@ market rate. Confirm the exact presentation against a real statement before enco
       the CLI parser; GREEN 1004 passed / 7 skipped, `ruff check .` and `ruff format --check .`
       clean, `bean-check` clean on both sample ledgers (untouched by this change). **T-N+1
       closed** — all three deliverables shipped.
+
+      **Native review of the third deliverable — CLOSED (approved after one bounded
+      correction, authority burned).** RDD assessed the accumulated slice since the last
+      reviewed boundary (`222f659..293c1ef`, 5 files / 488 lines) as medium risk
+      (`executable_change` in `cli.py`), owner granted; one lens (`review-reliability`),
+      lineage `review-64fcbc1f3e222e00`. Two candidate-caused findings required correction:
+      **R3-001 (BLOCKER)** — `_active_installment`/`installments()` indexed
+      `entry.meta["first_due"]`/`entry.meta["installment_amount"]` and `int(...)`-converted
+      `entry.meta["installments"]` with no guard beyond the `"installments" not in entry.meta`
+      check, so a transaction with malformed installment metadata raised a raw
+      `KeyError`/`ValueError` instead of the `SummaryError` the module's contract promises.
+      **R3-002 (CRITICAL)** — this very paragraph's test count was wrong (claimed 21, actually
+      13 new tests in `tests/test_summary.py` at review time). Fixed in commit `cd2a3e1`
+      (93 lines): new reason code `INSTALLMENT_META_INVALID`, 3 regression tests reproducing
+      each malformed-metadata case (RED confirmed: raw exceptions, not `SummaryError`; GREEN
+      1007 passed / 7 skipped), and the test count corrected to the true final number (16).
+      Targeted validation **approved**, acknowledged and burned. Three non-blocking advisories
+      left open: the payee-tie sort by `key` meta is documented but untested (no two plans
+      share a payee in the test suite); `first_due` being present-but-malformed (vs. absent) on
+      a plan is unproved, though `_parse_month` would presumably raise correctly; a
+      non-integer/zero/negative `installments` value silently truncates/excludes rather than
+      refusing.
 - [x] T-N+2: Double-counting guard: an assertion that every card settlement cancels
       liability and never creates an expense. — depends on T-04.
       **Closed 2026-09-28.** Built as a native beancount plugin, not a CLI command, so it
