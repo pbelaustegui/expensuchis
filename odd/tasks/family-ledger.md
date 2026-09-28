@@ -805,6 +805,26 @@ market rate. Confirm the exact presentation against a real statement before enco
       (`visa` inside other text), `read_pdf_rows` assumes top-to-bottom row order, the
       left-margin cut could silently drop a real token that starts left of `FECHA`, and a
       statement with no payment row is untested.
+      **T-07e delivered 2026-09-28** — `importers/bbva_card_importer.py` (`a858150`, 581 lines:
+      `build_entries` pure over (liquidacion, person, counterparty_map) as the test seam, the
+      natural keys designed from scratch — comprobante-based for purchases, a five-field plan
+      key, a surcharge-style charge key — the `BBVACardImporter` with `text_reader`/`rows_reader`
+      seams, the registry entry, and `pipeline.py`'s preserved-message allowlist extended with
+      BBVA's `SourceAccountError`, a T-07b review follow-up reused by both BBVA importers).
+      One follow-up (`eccb8dc`): the real Visa refused on 6 purchase rows whose reference codes
+      the synthetic fixtures never modelled (7+ digit runs, hyphen/dot/slash-separated or glued
+      to the merchant name, an inline original-currency amount and its currency code); BBVA-only
+      cleaning rules were added on top of the Provincia-mirrored ones. ProvinciaVisaImporter is
+      untouched. **Real run with a stub map, both cards:** Visa 51 entries (40 Visa ARS incl.
+      5 charges, 11 VisaUSD, 2 IVA, 3 Percepciones, 5 plans, 4 holder P2), keys unique;
+      Mastercard 4 entries. With an empty map, 36 Visa and 2 Mastercard merchants are
+      unclassified (the owner adds them to `counterparties.tsv`). 946 passed / 7 skipped,
+      `ruff` clean. Assessed **high**; owner granted; native review `review-9da42bd0cf3a8f9c`
+      (four lenses, 1298 lines) **approved** with no correction, acknowledged and burned.
+      Advisory follow-ups, all informational: R2-001/R2-002 and R2-003 (readability),
+      R3-FIRST-DUE-MONTH (`first_due` uses the close date as a stand-in for `VENCIMIENTO`),
+      R3-PLAN-DEDUP, R3-TOKEN-LOOP (WARNING), R4-001 and R4-002 (WARNING). Published as PR #17,
+      CI green. **Next: T-07f, the real-file probe.**
 - [x] T-08: Brubank importer, **format confirmed against a real file — UNBLOCKED, and now worth
       building.** Rows carry a running balance and a `#Ref`, and the descriptions name the
       counterparty, so the parse is straightforward; its one new problem is
