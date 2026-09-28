@@ -84,22 +84,37 @@ that never echo statement content.
     the card's own operation, not spending at a counterparty: the parser's own
     shape classification is the whole decision, and the account is fixed (T-07
     owner decision 4).
-* **The merchant identity.** :func:`_merchant_identity` mirrors
-  ``ProvinciaVisaImporter``'s own normalization exactly, as instructed: drop
-  the segment up to and including a leading ``*`` merchant marker (BBVA's own
-  card rows carry it, per the T-07 card reconnaissance), then drop any
-  pure-digit, date-like, time-like or CUIT-shaped **token** -- never an
-  amount-shaped one. This is a **known, documented gap**, not an oversight: a
-  purchase whose description carries an inline original-currency amount (the
-  parser's own docstring, "Row grammar" -- an inline ``USD <amount>`` pair is
-  never the movement, but it *is* kept as plain description text) is not
-  stripped by these rules, because Provincia's own normalization was never
-  designed for that shape either. The visa fixture's ``PLUGH GLOMPH USD 60,00``
-  purchase is pinned with this literal, unstripped identity in the test suite
-  for exactly this reason -- **open question, not decided here:** whether BBVA
-  needs its own additional noise-token rule for this shape. A row whose
-  identity would be an identifier rather than a merchant name refuses loudly,
-  same as Provincia.
+* **The merchant identity.** :func:`_merchant_identity` starts from
+  ``ProvinciaVisaImporter``'s own normalization (drop a leading ``*`` marker's
+  processor prefix, then any pure-digit, date-like, time-like or CUIT-shaped
+  token), then adds a **BBVA-specific departure** the real Visa file's own
+  refusals forced (T-07e follow-up, owner decision "clean the noise",
+  2026-09-27+1) -- deliberately **not** ported back into Provincia's own
+  module, which stays untouched:
+
+  - Any token containing a run of **7 or more digits**, once ``-``, ``.`` and
+    ``/`` separators are ignored, is noise (a reference/coupon code) and is
+    dropped **whole** -- *except* when the token is letters immediately
+    followed by that long digit run and nothing else (:data:`_LETTER_PREFIX_DIGIT_SUFFIX_RE`):
+    then the letters are kept and only the digit run is dropped, because that
+    shape is a merchant name glued to its own reference, not a bare code.
+  - An amount-shaped token (Argentine ``9.999,99``/``99,99``, mirroring the
+    parser's own :data:`~expensuchis.importers.bbva_card._AMOUNT_TOKEN_RE`
+    shape) is always dropped -- an inline original-currency restatement is
+    never the merchant. A **3-letter uppercase token immediately before** an
+    amount-shaped one is dropped too (a currency code introducing that
+    restatement); a bare 3-letter token *not* followed by an amount is left
+    alone, since nothing here says it isn't part of a name.
+  - The ``*`` rule gains a fallback: if the segment **after** the last ``*``
+    carries no letter once the above is applied, the segment **before** it is
+    used instead (cleaned the same way) -- the real file's own
+    ``<name>*<reference>`` shape, the mirror image of the ordinary
+    ``<processor>*<merchant>`` one this importer already handled. Otherwise
+    the existing after-``*`` rule is unchanged.
+
+  A row whose identity would be an identifier rather than a merchant name (no
+  letter survives anywhere) still refuses loudly, masked, exactly as before
+  and as Provincia's own does.
 * **The refusal.** An identity absent from the map stops the whole import with
   :class:`~expensuchis.importers.bbva_importer.CounterpartyClassificationError`
   (reused, not redefined), collecting every unique identity first. Every
@@ -222,12 +237,36 @@ _CUIT_RUN_RE = re.compile(r"(?<!\d)(?:\d{2}[ .-]?\d{8}[ .-]?\d|\d{11})(?!\d)")
 #: Punctuation inside an identity, replaced by a space before collapsing.
 _PUNCTUATION_RE = re.compile(r"[^\w\s]", re.UNICODE)
 
+#: BBVA-specific noise, on top of the shapes above (T-07e follow-up, owner
+#: decision "clean the noise", 2026-09-27+1) -- see the module docstring, "The
+#: merchant identity". Deliberately not ported into
+#: ``ProvinciaVisaImporter``, which carries none of this.
+#:
+#: An amount-shaped token, mirroring the parser's own
+#: ``bbva_card._AMOUNT_TOKEN_RE`` shape (comma-decimal, optional dot-grouped
+#: thousands): an inline original-currency restatement inside a description,
+#: never the merchant.
+_AMOUNT_TOKEN_RE = re.compile(r"^-?\$?\d{1,3}(?:\.\d{3})*,\d{2}-?$")
+#: A bare 3-letter uppercase token -- a currency code, but only when it sits
+#: immediately before an amount-shaped token (checked positionally, not here).
+_CURRENCY_CODE_RE = re.compile(r"^[A-Z]{3}$")
+#: Letters immediately followed by a 7+ digit run, and nothing else: a
+#: merchant name glued to its own reference code, unlike a bare reference
+#: (which carries no letters, or carries them on both sides of the digits).
+#: The letters are kept; the digit run is dropped.
+_LETTER_PREFIX_DIGIT_SUFFIX_RE = re.compile(r"^([A-Za-z]+)(\d{7,})$")
+#: The separators a long digit run may be broken up by, per the owner decision.
+_SEPARATOR_CHARS_RE = re.compile(r"[-./]")
+
 
 def _is_noise_token(token: str) -> bool:
     """Whether a token is per-row noise: pure digits, a date, a time or a CUIT.
 
-    Deliberately **not** amount-shaped (see the module docstring's documented
-    gap): an inline original-currency amount inside a description is kept.
+    Provincia's own four categories, unchanged. The BBVA-specific additions
+    (amount-shaped, currency-code-before-amount, long-digit-run) are handled
+    separately by :func:`_clean_bbva_tokens`, since the currency-code rule
+    needs to look at the *next* token and the long-digit-run rule can
+    transform a token instead of only dropping it.
     """
     return bool(
         _DIGIT_TOKEN_RE.fullmatch(token)
@@ -235,6 +274,64 @@ def _is_noise_token(token: str) -> bool:
         or _TIME_TOKEN_RE.fullmatch(token)
         or _CUIT_TOKEN_RE.fullmatch(token)
     )
+
+
+def _has_long_digit_run(token: str) -> bool:
+    """Whether ``token`` carries a run of 7+ digits once ``-``/``.``/``/`` are ignored."""
+    return _SEVEN_DIGIT_RUN_RE.search(_SEPARATOR_CHARS_RE.sub("", token)) is not None
+
+
+def _clean_bbva_tokens(tokens: Sequence[str]) -> list[str]:
+    """Drop or transform BBVA's own per-row noise; see the module docstring.
+
+    Runs Provincia's four noise categories (:func:`_is_noise_token`) plus
+    three BBVA-specific rules the real Visa file's refusals forced (T-07e
+    follow-up): an amount-shaped token is always dropped; a bare 3-letter
+    uppercase token immediately before an amount-shaped one is dropped with
+    it (a currency code introducing an inline original-currency restatement);
+    and any other token carrying a 7+ digit run (separators ignored) is
+    dropped whole, *unless* it is letters directly followed by that run and
+    nothing else, in which case the letters are kept.
+    """
+    cleaned: list[str] = []
+    count = len(tokens)
+    index = 0
+    while index < count:
+        token = tokens[index]
+        if _AMOUNT_TOKEN_RE.fullmatch(token) is not None:
+            index += 1
+            continue
+        if (
+            _CURRENCY_CODE_RE.fullmatch(token) is not None
+            and index + 1 < count
+            and _AMOUNT_TOKEN_RE.fullmatch(tokens[index + 1]) is not None
+        ):
+            index += 1  # the amount itself is dropped on the next iteration
+            continue
+        if _is_noise_token(token):
+            index += 1
+            continue
+        letter_prefix_match = _LETTER_PREFIX_DIGIT_SUFFIX_RE.fullmatch(token)
+        if letter_prefix_match is not None:
+            cleaned.append(letter_prefix_match.group(1))
+            index += 1
+            continue
+        if _has_long_digit_run(token):
+            index += 1
+            continue
+        cleaned.append(token)
+        index += 1
+    return cleaned
+
+
+def _has_letter(text: str) -> bool:
+    return any(character.isalpha() for character in text)
+
+
+def _clean_and_join(segment: str) -> str:
+    """Sweep a raw-text CUIT, split into tokens and apply :func:`_clean_bbva_tokens`."""
+    swept = _CUIT_SWEEP_RE.sub(" ", segment)
+    return " ".join(_clean_bbva_tokens(swept.split()))
 
 
 def _refuse_identifier(page: int, row: int) -> None:
@@ -256,21 +353,33 @@ def _canonical_identity(text: str) -> str:
 def _merchant_identity(description: str, page: int, row: int) -> str:
     """Return a purchase's **printed** counterparty identity.
 
-    Mirrors ``ProvinciaVisaImporter._merchant_identity`` exactly (see the module
-    docstring): drop the segment up to and including a leading ``*`` marker,
-    then any pure-digit, date-like, time-like or CUIT-shaped token, then
-    whitespace-collapse what remains, casing and punctuation kept.
+    Starts from ``ProvinciaVisaImporter._merchant_identity``'s own rule (drop
+    the segment up to and including a leading ``*`` marker, then whitespace-
+    collapse what survives noise-cleaning, casing and punctuation kept), with
+    the BBVA-specific additions :func:`_clean_bbva_tokens` applies and the
+    ``*`` fallback below -- see the module docstring, "The merchant identity".
+
+    When the description carries a ``*`` and the segment **after** the last
+    one has no letter left once cleaned, the segment **before** it is used
+    instead (cleaned the same way): the real file's own ``<name>*<reference>``
+    shape.
 
     Raises:
         CardLiquidacionParseError: no merchant name remains after the drops, or
-            the remaining identity still carries a CUIT-shaped run. Masked.
+            the remaining identity still carries a 7+ digit run. Masked.
     """
-    candidate = description.rsplit("*", 1)[1] if "*" in description else description
-    swept = _CUIT_SWEEP_RE.sub(" ", candidate)
-    tokens = [token for token in swept.split() if not _is_noise_token(token)]
-    printed = " ".join(tokens)
+    if "*" in description:
+        before, after = description.rsplit("*", 1)
+        printed = _clean_and_join(after)
+        raw_candidate = after
+        if not _has_letter(printed):
+            printed = _clean_and_join(before)
+            raw_candidate = before
+    else:
+        printed = _clean_and_join(description)
+        raw_candidate = description
     if not printed:
-        if candidate.strip():
+        if raw_candidate.strip():
             _refuse_identifier(page, row)
         raise bbva_card.CardLiquidacionParseError(
             f"page {page}, row {row}: the row carries no merchant identity after "

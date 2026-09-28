@@ -28,13 +28,14 @@ from beancount.core.amount import Amount
 
 from expensuchis.counterparties import CounterpartyMap
 from expensuchis.importers import bbva, get_importers
-from expensuchis.importers.bbva_card import parse_card_liquidacion
+from expensuchis.importers.bbva_card import CardLiquidacionParseError, parse_card_liquidacion
 from expensuchis.importers.bbva_card_importer import (
     ADDITIONAL_HOLDER_TAG,
     NAME,
     BBVACardImporter,
     CounterpartyClassificationError,
     StatementReadError,
+    _merchant_identity,
     build_entries,
 )
 from expensuchis.importers.bbva_importer import SOURCE, SourceAccountError, derive_person
@@ -89,7 +90,7 @@ VISA_MAP = {
     "FULANO SERVICIOS": "expense:Expenses:Compras",
     "ZUTANO COMERCIO": "expense:Expenses:Compras",
     "MENGANO KIOSCO": "expense:Expenses:Compras",
-    "PLUGH GLOMPH USD 60,00": "expense:Expenses:Compras",
+    "PLUGH GLOMPH": "expense:Expenses:Compras",
     "QWERTY FARMACIA": "expense:Expenses:Salud",
     "XYZZY LIBRERIA": "expense:Expenses:Educacion",
 }
@@ -142,9 +143,13 @@ def test_a_usd_purchase_posts_usd_with_no_price_against_the_visa_usd_liability()
     """Model case (b): the card holds a USD balance, so there is no conversion.
 
     A mutant that adds an ``@`` price or posts to the ARS liability fails here.
+    The payee is ``PLUGH GLOMPH``, not ``PLUGH GLOMPH USD 60,00``: the BBVA-
+    specific noise cleanup (T-07e follow-up) drops the inline original-currency
+    ``USD 60,00`` restatement from the description, closing what the first cut
+    of this importer left as an open question.
     """
     entries = _entries(VISA_FULL, VISA_MAP)
-    entry = next(e for e in entries if e.payee == "PLUGH GLOMPH USD 60,00")
+    entry = next(e for e in entries if e.payee == "PLUGH GLOMPH")
     assert _postings(entry) == [
         ("Expenses:Compras", "60.00", "USD"),
         ("Liabilities:BBVA:P2:VisaUSD", "-60.00", "USD"),
@@ -296,6 +301,80 @@ def test_two_persons_charge_keys_never_collide() -> None:
         if e.payee == SOURCE
     }
     assert p1_keys.isdisjoint(p2_keys)
+
+
+# --------------------------------------------------------------- merchant identity cleaning
+#
+# T-07e follow-up (owner decisions, "clean the noise"): the real Visa refused on
+# 6 purchase rows the first cut of this importer had not modelled. The masked
+# shapes below (digits->9, letters->a) are the parent's own description of the
+# refused rows; each test reproduces the *shape* with synthetic placeholder
+# words and irregular, non-round digits -- never a real statement token.
+
+
+def test_shape_a_a_reference_with_hyphen_separators_is_dropped_whole() -> None:
+    """``aaaaaaaaaa 9999999999999-999-999``: a word, then a hyphenated reference
+    whose digits (separators ignored) run to 13 -- dropped in full."""
+    assert _merchant_identity("WOMBAT 4785213-663-091", 1, 1) == "WOMBAT"
+
+
+def test_shape_b_letters_glued_to_a_long_digit_run_keep_the_letters() -> None:
+    """``aaaaaaaaaaaaaa999999999999999``: one token, letters directly followed
+    by a 15-digit run -- the letters survive, the digits don't."""
+    assert _merchant_identity("SPLORTKRELM483759226104837", 1, 1) == "SPLORTKRELM"
+
+
+def test_shape_c_a_word_plus_an_alphanumeric_reference_and_an_amount() -> None:
+    """``aaaaaaaaa a99999999aaa 9,99``: a word, a letter-digit-letter reference
+    (not the pure ``letters-then-digits`` shape of (b), so dropped whole, not
+    letter-preserved), and an inline original-currency amount."""
+    assert _merchant_identity("WOMBAT REF4527918KX 4,57", 1, 1) == "WOMBAT"
+
+
+def test_shape_d_a_name_before_an_embedded_asterisk_when_the_after_segment_empties() -> None:
+    """``aaaaa*99-99999-99999 aaa 999,99``: the segment after the last ``*`` is a
+    hyphenated reference plus a currency-code/amount pair -- once cleaned it
+    carries no letter at all, so the segment *before* the ``*`` is used instead."""
+    assert _merchant_identity("KRELM*77-45219-30582 USD 719,44", 1, 1) == "KRELM"
+    # A second occurrence of the same shape, different digits and currency code.
+    assert _merchant_identity("ZOBBIX*4-982175-604 ARS 88,03", 1, 1) == "ZOBBIX"
+
+
+def test_shape_e_a_dotted_name_survives_a_reference_and_an_amount() -> None:
+    """``aaaaaaa.aaa 999999999aaa 99,99``: a dotted merchant name (kept whole --
+    the dot is not noise), a digit-then-letters reference (dropped whole, the
+    mirror image of (b)), and an amount."""
+    assert _merchant_identity("WOMBAT.KRELM 837491052SX 55,18", 1, 1) == "WOMBAT.KRELM"
+
+
+def test_the_ordinary_after_asterisk_rule_is_unchanged() -> None:
+    """A plain ``PROC*Merchant`` row, with nothing to clean, still takes the
+    segment after the ``*`` -- the existing rule for the real purchases'
+    ``MERCHANTPROC*MERCHANT`` shape is untouched by the new cleaning rules."""
+    assert _merchant_identity("*FULANO SERVICIOS", 1, 1) == "FULANO SERVICIOS"
+    assert _merchant_identity("PROC*ZUTANO COMERCIO", 1, 1) == "ZUTANO COMERCIO"
+
+
+def test_a_row_with_no_letters_at_all_still_refuses_as_an_identifier() -> None:
+    """No ``*``, and nothing survives the cleanup: a reference and an amount,
+    no merchant name anywhere -- still a masked refusal, never a fallback to
+    the raw text."""
+    with pytest.raises(CardLiquidacionParseError) as excinfo:
+        _merchant_identity("4785213-663-091 719,44", 1, 1)
+    message = str(excinfo.value)
+    assert "identifier" in message
+    assert "4785213" not in message and "719,44" not in message
+
+
+def test_provincia_visa_importer_is_untouched_by_the_bbva_noise_rules() -> None:
+    """The owner decision is BBVA-only: Provincia's own normalization must not
+    gain the amount/currency-code/long-digit-run rules."""
+    from expensuchis.importers.provincia_visa_importer import _merchant_identity as _pv_identity
+
+    # Provincia's own rule has no amount-token or currency-code handling: an
+    # inline amount-shaped token is kept exactly as BBVA's used to be, before
+    # this follow-up -- pinning that Provincia's file was never touched.
+    assert _pv_identity("PLUGH GLOMPH USD 60,00", 1, 1) == "PLUGH GLOMPH USD 60,00"
 
 
 # ------------------------------------------------------------------------- refusal
