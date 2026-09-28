@@ -2053,8 +2053,12 @@ never replay the group. Capturing slot by slot afterwards admitted all four.
    **Done 2026-09-28:** the Visa merchants are classified and the first real BBVA Visa batch is
    appended (PR #19). **Done 2026-09-28:** the Mastercard statement was imported the same way
    (classify → open accounts → approve → append); owner confirmed `append` and `bean-check` both
-   passed clean. **Next:** re-run `extract` on a real Provincia Visa file to confirm PR #19 did
-   not stop it being claimed, then the open checklist units. Still open from T-08: the
+   passed clean. **Done 2026-09-28:** `extract` re-run on a real Provincia Visa file confirms
+   PR #19 did not regress it — `identify` still claims it as `ProvinciaVisa`. The first attempt
+   hit `SourceAccountError` (unrelated to PR #19: the file was not under the required
+   `.../Provincia/<person>/<file>.pdf` layout `derive_person` needs); moving it to the correct
+   path fixed it. **Next:** the open checklist units (T-01c is closed, PR #21; see the task
+   entry). Still open from T-08: the
    probe's too-broad `USD` refusal bucket, stale "recap" wording, and duplicated currency literals.
 1. **T-06b is closed.** The parser, the wiring and the probe are committed and reviewed; the tracker
    unit and both delivery sections are the record. (T-03, once named here as next, is closed.)
