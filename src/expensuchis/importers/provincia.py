@@ -216,7 +216,9 @@ _AMOUNT = r"-?\d[\d.]*"
 _DATE_PREFIX_RE = re.compile(rf"^({_DATE})(?:\s|$)")
 _DATE_BODY_RE = re.compile(rf"^{_DATE}\s+(?P<body>.+)$")
 #: The trailing ``<importe> <fecha-valor> <saldo>`` fields of a movement row.
-_TAIL_RE = re.compile(rf"(?P<value>{_AMOUNT})\s+(?P<value_date>{_VALUE_DATE})\s+(?P<balance>{_AMOUNT})\s*$")
+_TAIL_RE = re.compile(
+    rf"(?P<value>{_AMOUNT})\s+(?P<value_date>{_VALUE_DATE})\s+(?P<balance>{_AMOUNT})\s*$"
+)
 #: A line that is *only* the trailing fields: the continuation of a wrapped row.
 _CONTINUATION_RE = re.compile(
     rf"^(?P<value>{_AMOUNT})\s+(?P<value_date>{_VALUE_DATE})\s+(?P<balance>{_AMOUNT})$"
@@ -229,9 +231,7 @@ _CUIT_RE = re.compile(r"(?<![\d:])\d{0,3}:(\d{11})(?!\d)")
 #: The last page's closing summary: a line of exactly two ``$``-prefixed amounts.
 #: The document's own labels for the two columns are uncertain from the geometry, so
 #: the match is structural; the fixtures pin the semantics (closing saldo, total debits).
-_FOOTER_SUMMARY_RE = re.compile(
-    rf"^\$\s*(?P<closing>{_AMOUNT})\s+\$\s*(?P<debits>{_AMOUNT})\s*$"
-)
+_FOOTER_SUMMARY_RE = re.compile(rf"^\$\s*(?P<closing>{_AMOUNT})\s+\$\s*(?P<debits>{_AMOUNT})\s*$")
 
 
 def fold(text: str) -> str:
@@ -467,7 +467,9 @@ def _parse_movements(rows: list[tuple[int, int, str]]) -> list[Movement]:
             # A movement head without its tail: the continuation line must follow,
             # on the same page, and carry only the trailing fields.
             if index + 1 >= len(rows):
-                raise ExtractoParseError(f"line {line}: a wrapped movement has no continuation line")
+                raise ExtractoParseError(
+                    f"line {line}: a wrapped movement has no continuation line"
+                )
             next_page, next_line, next_raw = rows[index + 1]
             if _CONTINUATION_RE.match(next_raw.strip()) is None:
                 raise ExtractoParseError(

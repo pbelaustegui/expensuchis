@@ -140,9 +140,7 @@ def ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LedgerPaths:
 def test_a_valid_path_derives_the_person_cash_account() -> None:
     importer = BrubankImporter()
     assert derive_person("/statements/Brubank/P1/statement.pdf") == "P1"
-    assert importer.account("/statements/Brubank/P1/statement.pdf") == (
-        "Assets:Brubank:P1:Caja"
-    )
+    assert importer.account("/statements/Brubank/P1/statement.pdf") == ("Assets:Brubank:P1:Caja")
 
 
 @pytest.mark.parametrize(
@@ -353,18 +351,14 @@ def test_sort_orders_by_date_then_by_key() -> None:
     mapping = {"Persona Ejemplo": "expense:Expenses:Otros"}
     later = build_entries(
         _resumen(
-            _movement(
-                "10.00", "Persona Ejemplo", reference="0000000001", date=dt.date(2026, 1, 2)
-            )
+            _movement("10.00", "Persona Ejemplo", reference="0000000001", date=dt.date(2026, 1, 2))
         ),
         "P1",
         _StubMap(mapping),
     )[0]
     earlier = build_entries(
         _resumen(
-            _movement(
-                "10.00", "Persona Ejemplo", reference="0000000002", date=dt.date(2026, 1, 1)
-            )
+            _movement("10.00", "Persona Ejemplo", reference="0000000002", date=dt.date(2026, 1, 1))
         ),
         "P1",
         _StubMap(mapping),

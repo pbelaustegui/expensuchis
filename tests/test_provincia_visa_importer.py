@@ -300,6 +300,7 @@ def test_a_plan_key_differs_from_a_per_row_key() -> None:
         "2026-03-03:400123:1000.12",
     ]
 
+
 def test_surcharges_post_per_kind_and_per_currency_with_no_map_lookup() -> None:
     """``SELLOS`` and ``PERCEPCION`` are taxes on the card's own operation.
 
@@ -532,12 +533,16 @@ def test_two_different_plans_sharing_the_key_fields_collapse_to_one_key() -> Non
     stable plan identifier, so the collapse is the price of not splitting a plan
     on a cent of rounding.
     """
-    statement = _plan_statement("Zxqv Recarga").replace(
-        "26 Marzo 14 400234 Zxqv Recarga C.03/12 200,34",
-        "26 Marzo 14 400234 Zxqv Recarga C.03/12 200,34\n"
-        "26 Marzo 14 400999 Zxqv Recarga C.03/12 111,11",
-        1,
-    ).replace("200,34 * 0,00", "311,45 * 0,00", 1)
+    statement = (
+        _plan_statement("Zxqv Recarga")
+        .replace(
+            "26 Marzo 14 400234 Zxqv Recarga C.03/12 200,34",
+            "26 Marzo 14 400234 Zxqv Recarga C.03/12 200,34\n"
+            "26 Marzo 14 400999 Zxqv Recarga C.03/12 111,11",
+            1,
+        )
+        .replace("200,34 * 0,00", "311,45 * 0,00", 1)
+    )
     entries = _entries(statement)
     plan_keys = [e.meta["key"] for e in entries if "installments" in e.meta]
     assert len(plan_keys) == 2

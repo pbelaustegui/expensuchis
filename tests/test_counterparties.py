@@ -92,7 +92,9 @@ def test_first_record_writes_a_comment_header(counterparties: CounterpartyMap) -
 
 
 @pytest.mark.parametrize("destination", ["Otros", "internal", "expense", "other:Expenses:Otros"])
-def test_record_rejects_a_bad_destination(counterparties: CounterpartyMap, destination: str) -> None:
+def test_record_rejects_a_bad_destination(
+    counterparties: CounterpartyMap, destination: str
+) -> None:
     with pytest.raises(CounterpartyError):
         counterparties.record("Bbva", "Uno", destination)
     assert not counterparties.path.exists()  # nothing written on failure
@@ -100,10 +102,7 @@ def test_record_rejects_a_bad_destination(counterparties: CounterpartyMap, desti
 
 def test_bad_destination_in_the_file_names_the_line(counterparties: CounterpartyMap) -> None:
     counterparties.path.write_text(
-        "# header\n"
-        "\n"
-        "Bbva\tUno\texpense:Expenses:Otros\n"
-        "Bbva\tDos\tgarbage:Expenses:Otros\n",
+        "# header\n\nBbva\tUno\texpense:Expenses:Otros\nBbva\tDos\tgarbage:Expenses:Otros\n",
         encoding="utf-8",
     )
     with pytest.raises(CounterpartyError) as excinfo:
@@ -114,7 +113,7 @@ def test_bad_destination_in_the_file_names_the_line(counterparties: Counterparty
 @pytest.mark.parametrize("bad_row", ["Bbva\tUno\n", "Bbva\tUno\texpense:Expenses:Otros\textra\n"])
 def test_wrong_column_count_names_the_line(counterparties: CounterpartyMap, bad_row: str) -> None:
     counterparties.path.write_text(
-        "# header\n" "Bbva\tUno\texpense:Expenses:Otros\n" + bad_row,
+        "# header\nBbva\tUno\texpense:Expenses:Otros\n" + bad_row,
         encoding="utf-8",
     )
     with pytest.raises(CounterpartyError) as excinfo:
@@ -131,9 +130,7 @@ def test_record_rejects_tabbed_or_empty_names(counterparties: CounterpartyMap) -
 
 
 @pytest.mark.parametrize("source", ["#commented", "  #indented", "#", "#src"])
-def test_record_rejects_a_comment_like_source(
-    counterparties: CounterpartyMap, source: str
-) -> None:
+def test_record_rejects_a_comment_like_source(counterparties: CounterpartyMap, source: str) -> None:
     """A leading ``#`` writes a row the reader would then skip as a comment."""
     with pytest.raises(CounterpartyError, match="comment"):
         counterparties.record(source, "Uno", "expense:Expenses:Otros")

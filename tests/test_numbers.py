@@ -117,7 +117,13 @@ def test_format_amount(value: Decimal, fmt: AmountFormat, expected: str) -> None
 @pytest.mark.parametrize("fmt", [ARS, PLAIN])
 @pytest.mark.parametrize(
     "value",
-    [Decimal("0.00"), Decimal("0.05"), Decimal("12.34"), Decimal("-99.99"), Decimal("987654321.01")],
+    [
+        Decimal("0.00"),
+        Decimal("0.05"),
+        Decimal("12.34"),
+        Decimal("-99.99"),
+        Decimal("987654321.01"),
+    ],
 )
 def test_format_then_parse_round_trips(value: Decimal, fmt: AmountFormat) -> None:
     assert parse_amount(format_amount(value, fmt), fmt) == value

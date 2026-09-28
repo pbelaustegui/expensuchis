@@ -70,9 +70,7 @@ def _validate_destination(destination: str, line_number: int | None) -> str:
 
 def _validate_field(value: str, name: str) -> str:
     if not value or "\t" in value or "\n" in value or "\r" in value:
-        raise CounterpartyError(
-            f"Malformed {name} {value!r}: it must be a non-empty single field."
-        )
+        raise CounterpartyError(f"Malformed {name} {value!r}: it must be a non-empty single field.")
     return value
 
 

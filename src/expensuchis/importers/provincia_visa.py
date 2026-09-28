@@ -252,7 +252,9 @@ _INSTALLMENT_RE = re.compile(r"^C\.(\d{1,2})/(\d{1,2})$", re.IGNORECASE)
 #: with one to four decimals (three on the real document). Parsed by :func:`_rate`,
 #: a dedicated parser — ``numbers.parse_amount`` correctly refuses non-two-decimal
 #: money, and the rate is not money.
-_TC_RATE_RE = re.compile(r"^TC(?P<rate>\d{1,3}(?:\.\d{3})*|\d+),(?P<decimals>\d{1,4})$", re.IGNORECASE)
+_TC_RATE_RE = re.compile(
+    r"^TC(?P<rate>\d{1,3}(?:\.\d{3})*|\d+),(?P<decimals>\d{1,4})$", re.IGNORECASE
+)
 #: A perception row's rate token; the opening parenthesis may be glued to it
 #: (``9,99%(``), which both real perception shapes show.
 _RATE_RE = re.compile(r"^\d{1,2}(?:[.,]\d+)?%\(?$")
@@ -672,16 +674,14 @@ def _payment_amounts(trailing: list[str], page: int, line: int) -> tuple[Decimal
                 or not _AMOUNT_TOKEN_RE.fullmatch(trailing[index + 1])
             ):
                 raise LiquidacionParseError(
-                    f"page {page} line {line}: the payment row carries an unexpected "
-                    f"USD field"
+                    f"page {page} line {line}: the payment row carries an unexpected USD field"
                 )
             amount_usd = _amount(trailing[index + 1], page, line, "amount")
             index += 2
         elif _AMOUNT_TOKEN_RE.fullmatch(token):
             if amount_ars is not None:
                 raise LiquidacionParseError(
-                    f"page {page} line {line}: a payment row carries more than one "
-                    f"non-USD amount"
+                    f"page {page} line {line}: a payment row carries more than one non-USD amount"
                 )
             amount_ars = _amount(token, page, line, "amount")
             index += 1
@@ -690,9 +690,7 @@ def _payment_amounts(trailing: list[str], page: int, line: int) -> tuple[Decimal
                 f"page {page} line {line}: the payment row carries an unexpected field"
             )
     if amount_ars is None:
-        raise LiquidacionParseError(
-            f"page {page} line {line}: a payment row carries no ARS amount"
-        )
+        raise LiquidacionParseError(f"page {page} line {line}: a payment row carries no ARS amount")
     return amount_ars, amount_usd
 
 
@@ -874,7 +872,12 @@ def _surcharge_row(
                 None,
                 _amount(amounts[0], page, line, "amount"),
             ), False
-        return (SurchargeKind.SELLOS, " ".join(head), _amount(amounts[0], page, line, "amount"), None), False
+        return (
+            SurchargeKind.SELLOS,
+            " ".join(head),
+            _amount(amounts[0], page, line, "amount"),
+            None,
+        ), False
     rate_index = next((i for i, token in enumerate(head) if _RATE_RE.fullmatch(token)), None)
     parens = _parenthesis_base(head, rate_index)
     if parens is _Parens.MALFORMED:
@@ -897,7 +900,12 @@ def _surcharge_row(
             amount_ars, amount_usd = None, first
         else:
             return None, True
-        return (SurchargeKind.PERCEPCION, " ".join(tokens[:rate_index]), amount_ars, amount_usd), False
+        return (
+            SurchargeKind.PERCEPCION,
+            " ".join(tokens[:rate_index]),
+            amount_ars,
+            amount_usd,
+        ), False
     return None, False
 
 
@@ -939,17 +947,22 @@ def _reconcile(
         )
     checks.append(CheckResult("block-complete", not unclassified, block_detail))
 
-    ars_sum = sum((charge.amount_ars for charge in charges if charge.amount_ars is not None), Decimal(0))
+    ars_sum = sum(
+        (charge.amount_ars for charge in charges if charge.amount_ars is not None), Decimal(0)
+    )
     if ars_sum != total[0]:
         ars_detail = (
-            f"the ARS sum of {len(charges)} charge row(s) does not equal the declared "
-            f"ARS total"
+            f"the ARS sum of {len(charges)} charge row(s) does not equal the declared ARS total"
         )
     else:
-        ars_detail = f"the ARS amounts of {len(charges)} charge row(s) sum to the declared ARS total"
+        ars_detail = (
+            f"the ARS amounts of {len(charges)} charge row(s) sum to the declared ARS total"
+        )
     checks.append(CheckResult("charge-sums-ars", ars_sum == total[0], ars_detail))
 
-    usd_sum = sum((charge.amount_usd for charge in charges if charge.amount_usd is not None), Decimal(0))
+    usd_sum = sum(
+        (charge.amount_usd for charge in charges if charge.amount_usd is not None), Decimal(0)
+    )
     if usd_sum != total[1]:
         usd_detail = (
             f"the USD sum of {sum(1 for charge in charges if charge.amount_usd is not None)} "
@@ -1072,9 +1085,7 @@ def _reconcile(
             f"first at page {page} line {line}"
         )
     else:
-        day_detail = (
-            "every charge, payment and surcharge day is valid for its month and year"
-        )
+        day_detail = "every charge, payment and surcharge day is valid for its month and year"
     checks.append(CheckResult("day-valid", not day_failures, day_detail))
 
     if surcharge_failures:

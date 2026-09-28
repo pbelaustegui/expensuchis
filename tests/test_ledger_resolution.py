@@ -52,9 +52,7 @@ def test_non_existent_path_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     assert not missing.exists()
 
 
-def test_path_that_is_a_file_raises(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_path_that_is_a_file_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     file_path = tmp_path / "not-a-directory"
     file_path.write_text("synthetic placeholder\n")
     monkeypatch.setenv(ENV_VAR, str(file_path))
@@ -70,9 +68,7 @@ def test_path_in_temp_dir_succeeds(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert ledger_dir() == ledger.resolve()
 
 
-def test_sibling_prefix_directory_succeeds(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_sibling_prefix_directory_succeeds(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # A path whose *string* starts with the repository name but is not inside it.
     sibling = tmp_path / "expensuchis-ledgerr"
     sibling.mkdir()

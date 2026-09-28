@@ -223,7 +223,9 @@ def _fixed_destination(kind: MovementKind, person: str) -> str:
     raise AssertionError(f"no fixed destination for kind {kind!r}")  # pragma: no cover
 
 
-def _entry(movement: Movement, person: str, counterpart: str, key: str, payee: str) -> data.Transaction:
+def _entry(
+    movement: Movement, person: str, counterpart: str, key: str, payee: str
+) -> data.Transaction:
     meta = {"key": key}
     cash = _cash_account(person)
     postings = [

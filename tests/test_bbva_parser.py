@@ -181,9 +181,9 @@ def test_is_bbva_extracto_recognizes_the_full_statement() -> None:
 
 
 def test_is_bbva_extracto_rejects_other_banks_fixtures() -> None:
-    brubank_minimal = (
-        Path(__file__).parent / "fixtures" / "brubank" / "minimal.txt"
-    ).read_text(encoding="utf-8")
+    brubank_minimal = (Path(__file__).parent / "fixtures" / "brubank" / "minimal.txt").read_text(
+        encoding="utf-8"
+    )
     provincia_shapes = (
         Path(__file__).parent / "fixtures" / "provincia" / "shapes_rows.txt"
     ).read_text(encoding="utf-8")
@@ -259,7 +259,9 @@ def test_a_row_whose_month_is_later_than_the_close_month_belongs_to_the_previous
 
 
 def _replace_once(text: str, old: str, new: str) -> str:
-    assert text.count(old) == 1, f"expected exactly one occurrence of {old!r}, found {text.count(old)}"
+    assert text.count(old) == 1, (
+        f"expected exactly one occurrence of {old!r}, found {text.count(old)}"
+    )
     return text.replace(old, new, 1)
 
 
@@ -268,11 +270,15 @@ def mutate_balance_chain(text: str) -> str:
 
 
 def mutate_closing_balance(text: str) -> str:
-    return _replace_once(text, "SALDO AL 20 DE SEPTIEMBRE 11.824,15", "SALDO AL 20 DE SEPTIEMBRE 11.824,16")
+    return _replace_once(
+        text, "SALDO AL 20 DE SEPTIEMBRE 11.824,15", "SALDO AL 20 DE SEPTIEMBRE 11.824,16"
+    )
 
 
 def mutate_total_movements(text: str) -> str:
-    return _replace_once(text, "TOTAL MOVIMIENTOS -4.718,56 6.105,52", "TOTAL MOVIMIENTOS -4.718,57 6.105,52")
+    return _replace_once(
+        text, "TOTAL MOVIMIENTOS -4.718,56 6.105,52", "TOTAL MOVIMIENTOS -4.718,57 6.105,52"
+    )
 
 
 def mutate_out_of_order_date(text: str) -> str:
@@ -459,14 +465,18 @@ def test_a_detail_date_disagreeing_with_the_inferred_table_date_refuses() -> Non
 
 
 def test_an_unknown_concept_refuses() -> None:
-    text = FULL.replace("11/09 INTERESES GANADOS 63,28 12.638,39", "11/09 CONCEPTO DESCONOCIDO 63,28 12.638,39")
+    text = FULL.replace(
+        "11/09 INTERESES GANADOS 63,28 12.638,39", "11/09 CONCEPTO DESCONOCIDO 63,28 12.638,39"
+    )
     with pytest.raises(ExtractoConsolidadoParseError) as excinfo:
         _parse(text)
     assert "vocabulary" in str(excinfo.value)
 
 
 def test_a_wrong_sign_for_a_known_concept_refuses() -> None:
-    text = FULL.replace("09/09 004 PAGO HABERES 5.124,71 12.813,05", "09/09 004 PAGO HABERES -5.124,71 7.688,34")
+    text = FULL.replace(
+        "09/09 004 PAGO HABERES 5.124,71 12.813,05", "09/09 004 PAGO HABERES -5.124,71 7.688,34"
+    )
     with pytest.raises(ExtractoConsolidadoParseError) as excinfo:
         _parse(text)
     assert "wrong sign" in str(excinfo.value)

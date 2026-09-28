@@ -316,7 +316,9 @@ def test_the_minimal_fixture_has_no_payments_and_zero_valued_surcharges() -> Non
         line=13,
     )
     assert liquidacion.total_usd == Decimal("0.00")
-    assert all(surcharge.amount_ars in (None, Decimal("0.00")) for surcharge in liquidacion.surcharges)
+    assert all(
+        surcharge.amount_ars in (None, Decimal("0.00")) for surcharge in liquidacion.surcharges
+    )
     assert all(surcharge.when is None for surcharge in liquidacion.surcharges)
 
 
@@ -385,9 +387,7 @@ def test_a_date_past_the_closing_date_fires_date_not_after_closing() -> None:
         parse_liquidacion(_load("fail_date_after_closing.txt"))
     failed = {check.name for check in excinfo.value.failures}
     assert failed == {"date-not-after-closing"}
-    detail = next(
-        check for check in excinfo.value.checks if check.name == "date-not-after-closing"
-    )
+    detail = next(check for check in excinfo.value.checks if check.name == "date-not-after-closing")
     assert "after the closing date" in detail.detail and "page" in detail.detail
 
 
@@ -612,7 +612,9 @@ def test_a_charge_row_without_a_trailing_amount_is_refused_as_a_wrapped_row() ->
 
 
 def test_a_paginated_block_that_does_not_resume_with_a_charge_row_refuses() -> None:
-    mutated = PAGINATED.replace("26 Febrero 03 400888 Zxqv Plugh 222,22", "Zxqv Qwerty prosa suelta")
+    mutated = PAGINATED.replace(
+        "26 Febrero 03 400888 Zxqv Plugh 222,22", "Zxqv Qwerty prosa suelta"
+    )
     assert mutated != PAGINATED
     with pytest.raises(LiquidacionParseError) as excinfo:
         parse_liquidacion(mutated)
@@ -634,7 +636,9 @@ def test_a_truncated_document_without_the_total_row_refuses() -> None:
 
 def test_an_invalid_charge_day_is_reported_by_day_valid_and_the_sums_cascade() -> None:
     """A charge row with an invalid day cannot be represented, so the sums see it gone."""
-    mutated = MINIMAL.replace("26 Marzo 08 400111 Zxqv Qwerty 42,13", "26 Febrero 30 400111 Zxqv Qwerty 42,13")
+    mutated = MINIMAL.replace(
+        "26 Marzo 08 400111 Zxqv Qwerty 42,13", "26 Febrero 30 400111 Zxqv Qwerty 42,13"
+    )
     with pytest.raises(ReconciliationError) as excinfo:
         parse_liquidacion(mutated)
     failed = {check.name for check in excinfo.value.failures}
@@ -652,7 +656,9 @@ def test_every_failing_fixture_masks_statement_content() -> None:
 
 
 def test_structural_refusals_mask_statement_content() -> None:
-    mutated = FULL.replace("14 400234 PAGOAPP* Zxqv Recarga C.03/12 200,34", "14 400234 PAGOAPP* Zxqv Recarga")
+    mutated = FULL.replace(
+        "14 400234 PAGOAPP* Zxqv Recarga C.03/12 200,34", "14 400234 PAGOAPP* Zxqv Recarga"
+    )
     second_balance = FULL.replace(
         "25 SU PAGO EN PESOS 12.345,67 TC1.455,987 11.545,54- 900,12-\n",
         "25 SU PAGO EN PESOS 12.345,67 TC1.455,987 11.545,54- 900,12-\n"
@@ -680,6 +686,7 @@ def test_a_usd_only_row_keys_on_its_usd_amount() -> None:
     charges = parse_liquidacion(FULL).charges
     keys = charge_keys(charges)
     assert keys[3] == "2026-02-27:400456:512.34"
+
 
 def test_the_keys_are_unique_across_a_reconciled_document() -> None:
     """The comprobante is unique per document, so the bare key needs no suffix."""
