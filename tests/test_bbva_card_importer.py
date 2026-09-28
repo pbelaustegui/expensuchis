@@ -556,3 +556,20 @@ def test_the_two_bbva_importers_are_registered_with_distinct_names() -> None:
     names = [importer.name for importer in importers]
     assert names.count("BBVA") == 1
     assert names.count("BBVACard") == 1
+
+
+@pytest.mark.parametrize("rows", [VISA_FULL, MASTERCARD_FULL], ids=["visa", "mastercard"])
+def test_a_card_statement_is_claimed_by_exactly_one_registered_importer(rows) -> None:
+    """``extract`` refuses ``ambiguous-importer`` when two importers claim one file.
+
+    A BBVA card statement is also a *Liquidación*, the word Banco Provincia's
+    card importer used to claim on, so every registered importer is asked,
+    not just this one.
+    """
+    text = _flatten(rows)
+    claimants = [
+        importer.name
+        for importer in (type(i)(text_reader=lambda _p: text) for i in get_importers())
+        if importer.identify("/statements/Bbva/P2/x.pdf")
+    ]
+    assert claimants == [NAME]
