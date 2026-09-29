@@ -410,18 +410,32 @@ def _unclassified_message(
     the append suggestion shows the real ``raw_name`` instead of the
     ``<recipient CUIT>`` placeholder -- there is nothing left to hide once the
     caller has opted in. It exists for the owner reading a terminal directly,
-    never for output an agent or a remote model might read, which is why the
-    default stays redacted and this parameter is keyword-only.
+    never for output an agent or a remote model might read; like leakguard's
+    own ``--reveal``, that boundary is enforced by the operator's own
+    discipline, not by anything this function or the CLI checks -- a plain
+    boolean flag, no TTY probe, no confirmation gate -- which is why the
+    default stays redacted and this parameter is keyword-only rather than
+    something a caller could reach accidentally.
+
+    Whether a raw name *is* a CUIT is a structural fact, independent of
+    ``reveal``: it decides which hint this function prints, while ``reveal``
+    only decides whether the printed value is redacted. The two must stay
+    separate checks -- collapsing them (e.g. computing the displayed name
+    first and then comparing it to ``raw_name`` to decide the hint) makes the
+    comparison trivially true whenever ``reveal=True``, silently dropping the
+    CUIT hint for every revealed sent transfer regardless of whether it was
+    ever redacted to begin with.
     """
     lines = [f"{len(unclassified)} counterparties are not classified."]
     for raw_name, (movement, commodity) in unclassified.items():
+        is_cuit_identity = _redact_cuit(raw_name) != raw_name
         displayed_concept = movement.concept if reveal else _redact_cuit(movement.concept)
-        redacted_name = raw_name if reveal else _redact_cuit(raw_name)
+        displayed_name = raw_name if reveal else _redact_cuit(raw_name)
         lines.append(
             f"  {movement.date.isoformat()}  {movement.amount:,.2f} {commodity}  "
-            f'"{displayed_concept}"  "{redacted_name}"'
+            f'"{displayed_concept}"  "{displayed_name}"'
         )
-        if redacted_name != raw_name:
+        if is_cuit_identity and not reveal:
             lines.append(
                 "    this counterparty's identity is a redacted recipient CUIT, never "
                 "shown here or written to any staged file at this point (extract "
@@ -536,7 +550,9 @@ class BBVAImporter(Importer):
     refusal into showing a sent transfer's real recipient CUIT instead of the
     default ``<cuit>`` placeholder, mirroring
     :mod:`expensuchis.leakguard`'s own ``--reveal`` -- owner-only, at a
-    terminal, never where an agent or a remote model reads the output.
+    terminal, never where an agent or a remote model reads the output. As
+    with leakguard's flag, that is a convention the operator honours, not
+    something this class or the CLI enforces: a plain boolean, no TTY check.
     """
 
     def __init__(
