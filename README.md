@@ -77,6 +77,53 @@ uv run ruff check .                                        # lint
 To validate the real ledger, point `bean-check` at it through the environment variable
 without ever copying it into this repository.
 
+## Closing a month
+
+A month closes when every statement for it has been imported and the two report
+commands agree with what you expect. `docs/import-workflow.md` is the contract for a
+single statement (the review gate, refusal codes, the counterparty map); this is the
+loop over every source for one calendar month.
+
+For each statement you downloaded for the month — Mercado Pago, Banco Provincia
+(account and Visa), BBVA (account and each card), Brubank, whichever apply:
+
+```bash
+export EXPENSUCHIS_LEDGER_DIR="$HOME/expensuchis-ledger"   # your real ledger, never this repo
+
+expensuchis identify statement.pdf
+expensuchis extract --source <Source> statement.pdf
+expensuchis report <batch-id>          # read it yourself; append.tsv rows and open
+                                        # missing accounts, then re-extract if needed
+expensuchis approve <batch-id>
+expensuchis append <batch-id>
+```
+
+`append` already runs the `bean-check` gate and rolls back byte-for-byte on failure, so
+nothing partial ever lands. Once every source for the month is appended:
+
+```bash
+bean-check "$EXPENSUCHIS_LEDGER_DIR/main.beancount"
+expensuchis summary --month YYYY-MM --series mep
+expensuchis summary --month YYYY-MM --series ccl
+expensuchis installments --month YYYY-MM --series mep
+```
+
+What a month-level close catches that a single-statement import does not:
+
+- **A missing source.** Check that `transactions/YYYY-MM.beancount` carries entries
+  from every source you fed in, not just the ones that happened to import cleanly.
+- **A total that does not match reality.** Spot-check `summary`'s per-account USD
+  totals against two or three movements you know, rather than trusting the number.
+- **A wrong or missing cuota.** Cross-check `installments`'s rows against the card
+  statements you actually hold for the month — this is the view most likely to be
+  silently wrong, since nothing else in the pipeline touches it.
+- **MEP and CCL giving the same number.** They convert through different rates; if a
+  run of `summary` looks identical for both, `--series` is not doing what it should.
+
+Never paste a statement's raw content, a counterparty's name, or `report.txt` into a
+chat with an assistant — refusal reason codes and pass/fail outcomes carry no personal
+data and are always safe to share.
+
 ## Local commit hooks (active)
 
 CI is the enforcement of record, but the local hooks catch a problem before it is
