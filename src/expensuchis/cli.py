@@ -67,7 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "show the real recipient CUIT in a redacted refusal message instead of "
             "the default placeholder; for the owner at a terminal only -- never pass "
-            "this where the output is read by an agent or a remote model"
+            "this where the output is read by an agent or a remote model. Not "
+            "enforced by the tool, same as leakguard's --reveal: a plain flag, "
+            "trusted to the operator"
         ),
     )
 
