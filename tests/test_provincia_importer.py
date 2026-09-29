@@ -27,6 +27,7 @@ import pytest
 
 from expensuchis import pipeline
 from expensuchis.counterparties import CounterpartyMap
+from expensuchis.importers import get_importers
 from expensuchis.importers.mercadopago_importer import MercadoPagoImporter
 from expensuchis.importers.provincia import (
     ExtractoParseError,
@@ -51,6 +52,9 @@ DESCRIBED = (FIXTURES / "described_rows.txt").read_text(encoding="utf-8")
 REFERENCE_ROWS = (FIXTURES / "reference_rows.txt").read_text(encoding="utf-8")
 WRAPPED = (FIXTURES / "wrapped_rows.txt").read_text(encoding="utf-8")
 SHAPES = (FIXTURES / "shapes_rows.txt").read_text(encoding="utf-8")
+
+BBVA_FIXTURES = Path(__file__).parent / "fixtures" / "bbva"
+BBVA_FULL_STATEMENT = (BBVA_FIXTURES / "full_statement.txt").read_text(encoding="utf-8")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -821,6 +825,25 @@ def test_both_importers_cannot_claim_each_other_statements() -> None:
     assert not ProvinciaImporter(text_reader=lambda _path: "RESUMEN DE CUENTA EN PESOS\n").identify(
         "/tmp/x.pdf"
     )
+
+
+def test_a_bbva_account_statement_is_claimed_by_exactly_one_registered_importer() -> None:
+    """A BBVA caja de ahorro statement can carry the marker phrase as boilerplate.
+
+    ``MARKER`` is matched as a raw substring over the whole folded document, so
+    it used to fire whenever the phrase "Extracto de Cuenta" turned up anywhere
+    in a BBVA statement's incidental text, not just in an actual Provincia
+    title: two claimants made ``extract`` refuse the file as
+    ``ambiguous-importer``. This mirrors the same bug already fixed for the
+    card siblings in ``test_bbva_card_importer.py``.
+    """
+    text = BBVA_FULL_STATEMENT + "\nCondiciones generales: consulte su Extracto de Cuenta.\n"
+    claimants = [
+        importer.name
+        for importer in (type(i)(text_reader=lambda _p: text) for i in get_importers())
+        if importer.identify("/statements/Bbva/P2/x.pdf")
+    ]
+    assert claimants == ["BBVA"]
 
 
 # ------------------------------------------------------------------- registration

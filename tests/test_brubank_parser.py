@@ -199,11 +199,45 @@ def test_is_resumen_movimientos_rejects_provincias_extracto() -> None:
     assert is_resumen_movimientos("Extracto de Cuenta\nFecha Concepto Importe\n") is False
 
 
-def test_is_resumen_movimientos_requires_both_words_on_the_same_line() -> None:
-    """Two words split across lines are not the title: the check is structural, not a scan."""
-    text = "Resumen mensual\nEste documento no es un resumen de movimientos.\nOtros movimientos.\n"
+def test_is_resumen_movimientos_recognizes_a_split_title_once_the_table_header_appears() -> None:
+    """A second real-world August rendering splits the title across the page.
+
+    ``Resumen`` sits in the page header and ``Movimientos`` only appears
+    later, as a section heading, with unrelated header fields between them —
+    never on the same line, and never both anywhere without the table that
+    follows. What makes this a genuine Brubank statement is its own repeated
+    movement-table header line, which every real file must carry for the
+    parser to find the table at all.
+    """
+    text = (
+        "Resumen\n"
+        "Cuenta en pesos\n"
+        "Saldo Inicial $ 100,00 Saldo Final $ 100,00\n"
+        "Créditos $ 0,00 Débitos $ 0,00 Imp. Trans. Financieras $ 0,00\n"
+        "Movimientos\n"
+        "Fecha #Ref Descripción Débito Crédito Saldo\n"
+        "01-01-26 1 Un movimiento - $ 100,00 $ 0,00\n"
+        "Período 01 Ene 2026 al 31 Ene 2026\n"
+    )
+    assert is_resumen_movimientos(text) is True
+
+
+def test_is_resumen_movimientos_requires_the_exact_header_shape() -> None:
+    """Structural, not fuzzy: a near-header line missing or adding a field never matches."""
+    assert is_resumen_movimientos("Fecha #Ref Descripción Crédito Saldo\n") is False
+    assert is_resumen_movimientos("Fecha #Ref Descripción Débito Crédito Saldo Extra\n") is False
+
+
+def test_is_resumen_movimientos_ignores_title_words_without_the_table_header() -> None:
+    """Title words alone, on any arrangement of lines, are no longer sufficient.
+
+    The title-word heuristic (same-line, then anywhere-in-document) was tried
+    and dropped: it either missed this split-title rendering or collided with
+    a BBVA page carrying "RESUMEN"/"MOVIMIENTOS" as separate section
+    headings. Only the table header this parser itself requires is checked.
+    """
     assert is_resumen_movimientos("Resumen\nde\nmovimientos\n") is False
-    assert is_resumen_movimientos(text) is False
+    assert is_resumen_movimientos("Resumen de Movimientos\nsin ninguna tabla\n") is False
 
 
 # --------------------------------------------------------------------------- the natural key

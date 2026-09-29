@@ -490,6 +490,24 @@ def test_identify_returns_false_when_extraction_raises() -> None:
     assert BrubankImporter(text_reader=boom).identify("/tmp/whatever.pdf") is False
 
 
+def test_a_split_title_statement_is_claimed_by_exactly_one_registered_importer() -> None:
+    """A real second-format Brubank statement splits its title across two lines.
+
+    ``resumen`` and ``movimientos`` never land on the same line, so the old
+    title-word check missed it entirely (``no-importer``). Identification now
+    anchors on the movement table's own repeated header instead of the title
+    wording, so the statement is recognized without opening it up to any
+    other registered importer.
+    """
+    text = MINIMAL.replace("Resumen de Movimientos", "Resumen\nde\nMovimientos", 1)
+    claimants = [
+        importer.name
+        for importer in (type(i)(text_reader=lambda _p: text) for i in get_importers())
+        if importer.identify("/statements/Brubank/P1/x.pdf")
+    ]
+    assert claimants == [SOURCE]
+
+
 def test_pipeline_refusal_does_not_carry_the_sensitive_path(ledger: LedgerPaths) -> None:
     """The CLI prints ``importer-raised``; the reader's path and filename must not ride in it."""
     _write_ledger(ledger)

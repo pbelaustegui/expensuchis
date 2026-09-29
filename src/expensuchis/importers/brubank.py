@@ -331,19 +331,34 @@ def fold(text: str) -> str:
 
 
 def is_resumen_movimientos(text: str) -> bool:
-    """Whether ``text`` is a Brubank ``Resumen de Movimientos``, by its title line.
+    """Whether ``text`` is a Brubank ``Resumen de Movimientos`` account statement.
 
-    Structural, not a substring search over the whole document: a single line
-    whose folded tokens include both ``resumen`` and ``movimientos``. Disjoint
-    from Provincia's ``Extracto de Cuenta`` marker and from the card
-    liquidación's vocabulary (``liquidacion``, ``consumos``, ...). Two words
-    that happen to land on different lines are not the title.
+    Structural: some line's folded tokens must equal the movement table's own
+    repeated header, ``Fecha | #Ref | Descripción | Débito | Crédito | Saldo``
+    (:data:`_TABLE_HEADER_TOKENS`, via :func:`_is_table_header`). This is not
+    title wording at all — it is the exact structural fact
+    :func:`_parse_movements` already depends on to find the table, so
+    ``identify`` and the parser can never disagree about what counts as a
+    Brubank statement, the same philosophy as
+    :func:`~expensuchis.importers.bbva.is_bbva_extracto` anchoring on BBVA's
+    own table header instead of its title.
+
+    Two title-based designs were tried and rejected before this one. Matching
+    ``resumen`` and ``movimientos`` as folded tokens on the *same* line was
+    too strict: a real, second-format Brubank statement splits the title
+    across the page — ``Resumen`` in the page header, ``Movimientos`` only
+    later, as a section heading — so the two words never share a line in that
+    rendering, and the statement went unrecognized. Relaxing the check to
+    "both words anywhere in the document" fixed that but reopened a
+    collision: a real BBVA page can plausibly carry ``RESUMEN`` and
+    ``MOVIMIENTOS`` as separate section headings too (``RESUMEN DE CUENTAS`` /
+    ``MOVIMIENTOS DEL PERIODO``), with no table of its own to disambiguate.
+    The table header is what the parser actually needs anyway, so anchoring
+    on it — rather than patching the title check with ever more exceptions —
+    is both simpler and immune to either failure mode: no real non-Brubank
+    statement carries this exact six-token line.
     """
-    for line in _normalize(text).split("\n"):
-        tokens = set(fold(line).split())
-        if "resumen" in tokens and "movimientos" in tokens:
-            return True
-    return False
+    return any(_is_table_header(line) for line in _normalize(text).split("\n"))
 
 
 @dataclass(frozen=True)

@@ -90,6 +90,7 @@ from beangulp import Importer
 
 from ..counterparties import CounterpartyMap
 from . import provincia
+from .bbva import is_bbva_extracto
 from .pdf import read_pdf
 from .provincia import (
     Extracto,
@@ -452,14 +453,23 @@ class ProvinciaImporter(Importer):
         """Claim the file when its extracted text carries the statement marker.
 
         The marker is matched after folding (casefold + accent stripping) because
-        the statement's title casing varies between renderings. Never raises and
-        never prints: any extraction failure is a non-match.
+        the statement's title casing varies between renderings, but the match is a
+        raw substring over the whole document, not a structural check — and a real
+        BBVA caja de ahorro statement can carry the phrase "Extracto de Cuenta"
+        somewhere in its own boilerplate (not the table itself). Without a further
+        check, that would make both this importer and ``BBVAImporter`` claim the
+        same file, and ``extract`` would refuse it as ``ambiguous-importer``. This
+        method closes that gap itself: it returns ``False`` whenever BBVA's own
+        structural check, :func:`~expensuchis.importers.bbva.is_bbva_extracto`,
+        also claims the text, yielding the file to the more specific importer.
+        Never raises and never prints: any extraction failure, or a failure in
+        that structural check, is a non-match.
         """
         try:
             text = self._read_text(filepath)
+            return provincia.fold(MARKER) in provincia.fold(text) and not is_bbva_extracto(text)
         except Exception:  # noqa: BLE001 - an unreadable file is simply not ours
             return False
-        return provincia.fold(MARKER) in provincia.fold(text)
 
     def account(self, filepath: str) -> str:
         """Return the archival account: the person's derived cash account.
