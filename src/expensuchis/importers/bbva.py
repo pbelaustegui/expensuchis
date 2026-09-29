@@ -17,7 +17,10 @@ What the document looks like
 Page 1 opens with the debit-card detail section (``TARJETAS DE DEBITO``): a
 short header block naming the card's last four digits and the linked debit
 account, followed by zero or more purchase-detail rows, each carrying a
-full ``dd/mm/yyyy`` date, a merchant, a six-digit id and a signed amount.
+full ``dd/mm/yyyy`` date, the masked card number (three ``****`` groups
+followed by the real last-4-digit group, all whitespace-separated), the
+merchant (the text after that last-4 group), a six-digit id and a signed
+amount.
 This section is the merchant source for every ``PAGO CON VISA DEBITO``
 movement row in the tables below it (owner decision: the movement table is
 the source of truth, joined to this section strictly by ``(date, amount)``).
@@ -399,7 +402,13 @@ class _DetailRow:
 def _parse_debit_card_details(
     rows: list[tuple[int, int, str]],
 ) -> tuple[_DetailRow, ...]:
-    """Parse the debit-card detail section: the merchant source for purchase rows."""
+    """Parse the debit-card detail section: the merchant source for purchase rows.
+
+    Each row's body carries the masked card number (the ``****`` groups)
+    before the real last-4-digit group and the merchant text after it; the
+    merchant is everything following the single ``last4`` match, never what
+    precedes it.
+    """
     last4: str | None = None
     account_index: int | None = None
     for index, (_page, _line, raw) in enumerate(rows):
@@ -444,7 +453,7 @@ def _parse_debit_card_details(
                 f"line {line}: the debit-card detail row has no words after the card's "
                 f"last 4 digits"
             )
-        merchant = " ".join(body_tokens[:split_index])
+        merchant = " ".join(body_tokens[split_index + 1 :])
         try:
             row_date = dt.date(
                 int(match.group("yyyy")), int(match.group("mm")), int(match.group("dd"))

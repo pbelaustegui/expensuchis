@@ -141,6 +141,52 @@ def test_a_debit_card_purchase_carries_its_joined_merchant() -> None:
     assert purchases[1].amount == Decimal("-237.94")
 
 
+_MASKED_CARD_DETAIL = (
+    "TARJETAS DE DEBITO\n"
+    "DETALLE\n"
+    "TITULAR VISA DEBITO 7777\n"
+    "FECHA TARJETA FULANO EJEMPLO\n"
+    "CUENTA DEBITO NRO $ 000-777777/7\n"
+    "05/09/2026 **** **** **** 7777 NEGOCIO DE PRUEBA 111222 $ -50,00\n"
+    "DETALLE\n"
+    "MOVIMIENTOS EN PESOS\n"
+    "CC $ 000-777777/7 CAJA DE AHORRO FINAL\n"
+    "FECHA ORIGEN CONCEPTO DEBITO CREDITO SALDO\n"
+    "SALDO ANTERIOR 100,00\n"
+    "05/09 PAGO CON VISA DEBITO -50,00 50,00\n"
+    "SALDO AL 05 DE SEPTIEMBRE 50,00\n"
+    "TOTAL MOVIMIENTOS -50,00 0,00\n"
+    "LOS MOVIMIENTOS QUE GENERARON PERCEPCION DE IVA SE INFORMAN CON EL DETALLE DEL CREDITO\n"
+)
+
+
+def test_a_debit_card_detail_row_extracts_the_merchant_after_the_masked_card_token() -> None:
+    """Real August statement evidence (safe structural counts, never raw content):
+
+    the row carries the masked card as three ``****`` groups before the real
+    last4 digits, then the merchant text after them. The merchant is the text
+    *after* the last4 match, never the masked groups themselves.
+    """
+    extracto = parse_extracto_consolidado(_MASKED_CARD_DETAIL, anchor=dt.date(2026, 9, 10))
+    purchases = [m for m in extracto.movements if m.kind is MovementKind.DEBIT_CARD_PURCHASE]
+    assert [m.merchant for m in purchases] == ["NEGOCIO DE PRUEBA"]
+
+
+def test_a_debit_card_detail_row_with_no_merchant_after_last4_refuses() -> None:
+    """The masked card token may legitimately open the row (nothing before it is
+
+    fine), but there must be merchant text *after* it -- the symmetric guard
+    for the corrected "merchant is after" design.
+    """
+    text = _MASKED_CARD_DETAIL.replace(
+        "05/09/2026 **** **** **** 7777 NEGOCIO DE PRUEBA 111222 $ -50,00\n",
+        "05/09/2026 **** **** **** 7777 111222 $ -50,00\n",
+    )
+    with pytest.raises(ExtractoConsolidadoParseError) as excinfo:
+        parse_extracto_consolidado(text, anchor=dt.date(2026, 9, 10))
+    assert "no words after" in str(excinfo.value)
+
+
 def test_a_transfer_out_carries_its_joined_recipient_cuit() -> None:
     movements = _parse(FULL).movements
     transfers_out = [m for m in movements if m.kind is MovementKind.TRANSFER_OUT]
@@ -416,9 +462,9 @@ def test_a_transfer_out_without_a_matching_section_c_row_refuses() -> None:
 
 def test_a_purchase_row_with_two_detail_candidates_refuses() -> None:
     text = FULL.replace(
-        "05/09/2026 COMERCIO EJEMPLO 1234 REF PAGO 847261 $ -483,17\n",
-        "05/09/2026 COMERCIO EJEMPLO 1234 REF PAGO 847261 $ -483,17\n"
-        "05/09/2026 OTRO COMERCIO 1234 REF PAGO 938471 $ -483,17\n",
+        "05/09/2026 **** **** **** 1234 COMERCIO EJEMPLO 847261 $ -483,17\n",
+        "05/09/2026 **** **** **** 1234 COMERCIO EJEMPLO 847261 $ -483,17\n"
+        "05/09/2026 **** **** **** 1234 OTRO COMERCIO 938471 $ -483,17\n",
     )
     with pytest.raises(ReconciliationError) as excinfo:
         _parse(text)
@@ -428,9 +474,9 @@ def test_a_purchase_row_with_two_detail_candidates_refuses() -> None:
 
 def test_an_in_window_detail_row_without_a_partner_refuses() -> None:
     text = FULL.replace(
-        "10/09/2026 KIOSCO EJEMPLO 1234 REF PAGO 519384 $ -237,94\n",
-        "10/09/2026 KIOSCO EJEMPLO 1234 REF PAGO 519384 $ -237,94\n"
-        "11/09/2026 OTRO NEGOCIO 1234 REF PAGO 604827 $ -84,26\n",
+        "10/09/2026 **** **** **** 1234 KIOSCO EJEMPLO 519384 $ -237,94\n",
+        "10/09/2026 **** **** **** 1234 KIOSCO EJEMPLO 519384 $ -237,94\n"
+        "11/09/2026 **** **** **** 1234 OTRO NEGOCIO 604827 $ -84,26\n",
     )
     with pytest.raises(ReconciliationError) as excinfo:
         _parse(text)
@@ -454,7 +500,10 @@ def test_a_detail_date_disagreeing_with_the_inferred_table_date_refuses() -> Non
     -- a :class:`ReconciliationError` on ``debit-card-details-matched``, never
     a silent, wrong merchant join.
     """
-    text = FULL.replace("05/09/2026 COMERCIO EJEMPLO", "05/09/2025 COMERCIO EJEMPLO")
+    text = FULL.replace(
+        "05/09/2026 **** **** **** 1234 COMERCIO EJEMPLO",
+        "05/09/2025 **** **** **** 1234 COMERCIO EJEMPLO",
+    )
     with pytest.raises(ReconciliationError) as excinfo:
         _parse(text)
     failed = {check.name for check in excinfo.value.failures}
@@ -612,8 +661,8 @@ def test_a_visa_debito_header_without_its_cuenta_debito_line_refuses() -> None:
 
 def test_ambiguous_last4_split_refuses() -> None:
     text = FULL.replace(
-        "05/09/2026 COMERCIO EJEMPLO 1234 REF PAGO 847261 $ -483,17",
-        "05/09/2026 COMERCIO 1234 EJEMPLO 1234 REF PAGO 847261 $ -483,17",
+        "05/09/2026 **** **** **** 1234 COMERCIO EJEMPLO 847261 $ -483,17",
+        "05/09/2026 **** **** **** 1234 COMERCIO 1234 EJEMPLO 847261 $ -483,17",
     )
     with pytest.raises(ExtractoConsolidadoParseError) as excinfo:
         _parse(text)
