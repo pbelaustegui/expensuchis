@@ -2265,3 +2265,55 @@ once the chain was published. BBVA (T-07) traveled inside PR #11 instead of stay
 
 **Lesson recorded:** stacked PRs must be merged in descending order (#10 first) or retargeted to
 `main` after each merge; GitHub's MERGED state alone does not prove the commits reached `main`.
+
+### Two real `identify()` bugs found processing August, fixed in PR #29 (2026-09-29)
+
+**What.** The owner ran every August statement through the pipeline for the first time since
+the ledger reset. Two files were misclassified — diagnosed entirely from booleans/line-counts
+the owner ran themselves in their own terminal against the real files; no statement content
+ever entered this conversation.
+
+1. **BBVA caja de ahorro claimed by both `BBVA` and `Provincia`** (`ambiguous-importer`).
+   `ProvinciaImporter.identify` matched a raw substring, "Extracto de Cuenta" folded, anywhere
+   in the document — the same bug class PR #19 already fixed once for the card pair. The real
+   BBVA account statement carries that phrase somewhere in its own boilerplate. Fixed the same
+   way: `identify()` now yields (`and not is_bbva_extracto(text)`) whenever BBVA's own
+   structural check (table header + "consolidado") also claims the file.
+2. **A real Brubank statement not recognized at all** (`no-importer`). `is_resumen_movimientos`
+   required the folded tokens "resumen" and "movimientos" on the *same line*; this second real
+   rendering splits the title across the page (title word, then "Movimientos" later as a
+   section heading) — confirmed still a genuine, parseable Brubank statement via
+   `tools/probe_brubank.py` (28 movements, all 7 checks ok) before touching any code. First
+   relaxed to "anywhere in the document" — verified safe against every fixture, but broke a
+   pre-existing pinned test guarding against a plausible BBVA rendering with "resumen"/
+   "movimientos" as separate section headings. Landed instead on the structurally correct fix:
+   `is_resumen_movimientos` now anchors on Brubank's own repeated table-header line
+   (`_TABLE_HEADER_TOKENS`/`_is_table_header`) — the exact structural fact the parser itself
+   already depends on — dropping the title-word heuristic entirely. Verified unique against
+   every fixture and the pinned BBVA edge case.
+
+Files: `src/expensuchis/importers/provincia_importer.py`, `src/expensuchis/importers/brubank.py`,
+`tests/test_provincia_importer.py`, `tests/test_brubank_importer.py`,
+`tests/test_brubank_parser.py`. Route: delegated direct (writer trigger: 2 source + 3 test
+files), two design iterations before landing (see above) — flagged back to the parent twice
+rather than guessing. TDD strict: RED confirmed for both bugs before each fix; GREEN 1011
+passed / 7 skipped, `ruff check .`/`ruff format --check .` clean, `bean-check` clean on both
+samples. Commits `a982337`, `c918550` on branch `fix/importer-identify-overlap`, PR #29.
+
+**Native review — CLOSED (approved after one bounded correction, authority burned).** RDD
+assessed the two-commit slice as **high risk** (`process_boundary`/`shell_process`: the touched
+test file already calls `subprocess.run` elsewhere, for the real `bean-check` binary — pre-existing,
+not new), owner granted; four lenses, lineage `review-4ff35ac4efda6de8`. Two CRITICAL findings,
+both in the Provincia fix: the rewritten docstring narrated the ambiguity in a way that read as
+still-unresolved rather than stating that the method's own `and not (...)` clause is what closes
+it (readability); and the new `is_bbva_extracto(text)` call sat outside the method's own
+`try/except`, so an exception from it would break the docstring's own "never raises" promise
+(reliability). Fixed in commit `dd44253` (14 lines): rewrote the docstring to say plainly that
+this method closes the gap itself, and moved the check inside the `try` block. Targeted
+validation **approved**, acknowledged and burned. Four non-blocking advisories left open: the
+Provincia/BBVA exclusion is a hard-coded pairwise coupling that won't generalize to a future
+third collision without its own bespoke clause; Brubank's now-exact table-header match is
+brittle to a future column rename/reorder (word-based matching would have tolerated it,
+structural matching won't — accepted trade-off, the alternative is the bug just fixed); no test
+proves an ordinary non-colliding Provincia statement still matches under the new conjunction;
+no test exercises `is_bbva_extracto` actually raising.
