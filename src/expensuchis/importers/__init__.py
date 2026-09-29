@@ -41,7 +41,7 @@ from .provincia_visa_importer import ProvinciaVisaImporter
 __all__ = ["get_importers"]
 
 
-def get_importers() -> list[Importer]:
+def get_importers(*, reveal: bool = False) -> list[Importer]:
     """Return one fresh importer instance per supported source.
 
     Mercado Pago, the Provincia account extracto, the Provincia card
@@ -50,12 +50,17 @@ def get_importers() -> list[Importer]:
     are registered. The pipeline resolves its default importers through this
     function, so registering a source is a one-line change that every
     command sees.
+
+    ``reveal`` is threaded only to :class:`BBVAImporter`, the only importer
+    whose refusal message redacts a counterparty identity by default (a sent
+    transfer's recipient CUIT; see :mod:`expensuchis.importers.bbva_importer`).
+    No other importer here has this concept, so none of them takes it.
     """
     return [
         MercadoPagoImporter(),
         ProvinciaImporter(),
         ProvinciaVisaImporter(),
         BrubankImporter(),
-        BBVAImporter(),
+        BBVAImporter(reveal=reveal),
         BBVACardImporter(),
     ]

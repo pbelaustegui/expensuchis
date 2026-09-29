@@ -409,6 +409,25 @@ def test_an_unclassified_transfer_out_redacts_the_cuit_in_the_refusal() -> None:
     assert "staged transaction" not in message
 
 
+def test_reveal_shows_the_real_cuit_in_the_refusal() -> None:
+    """``reveal=True`` is opt-in and owner-only; it skips the CUIT redaction entirely."""
+    extracto = _extracto(FULL)
+    mapping = {
+        "COMERCIO EJEMPLO": "expense:Expenses:Otros",
+        "KIOSCO EJEMPLO": "expense:Expenses:Otros",
+        "fulano": "expense:Expenses:Otros",
+        # "20000000001" and "20000000002" deliberately absent.
+    }
+    with pytest.raises(CounterpartyClassificationError) as excinfo:
+        build_entries(extracto, "P1", _StubMap(mapping), reveal=True)
+    message = str(excinfo.value)
+    assert "<cuit>" not in message
+    assert "20000000001" in message
+    assert "20000000002" in message
+    assert "BBVA\t20000000001\texpense:<category>" in message
+    assert "BBVA\t20000000002\texpense:<category>" in message
+
+
 def test_an_unclassified_transfer_in_shows_its_stripped_name() -> None:
     extracto = _extracto(FULL)
     mapping = {

@@ -164,7 +164,7 @@ def test_full_flow_through_the_cli(
     monkeypatch.setattr(
         pipeline,
         "get_importers",
-        lambda: [FakeImporter(entries=[make_entry(dt.date(2026, 1, 5), "k1")])],
+        lambda *, reveal=False: [FakeImporter(entries=[make_entry(dt.date(2026, 1, 5), "k1")])],
     )
     assert cli.main(["bootstrap"]) == 0
     ledger.accounts().write_text(ACCOUNTS, encoding="utf-8")
@@ -191,7 +191,7 @@ def test_append_without_approval_refuses_with_a_reason(
     monkeypatch.setattr(
         pipeline,
         "get_importers",
-        lambda: [FakeImporter(entries=[make_entry(dt.date(2026, 1, 5), "k1")])],
+        lambda *, reveal=False: [FakeImporter(entries=[make_entry(dt.date(2026, 1, 5), "k1")])],
     )
     cli.main(["bootstrap"])
     ledger.accounts().write_text(ACCOUNTS, encoding="utf-8")
@@ -202,10 +202,40 @@ def test_append_without_approval_refuses_with_a_reason(
     assert pipeline.APPROVAL_MISSING in capsys.readouterr().err
 
 
+def test_extract_accepts_reveal_and_threads_it_to_get_importers(
+    ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
+) -> None:
+    captured_kwargs: dict = {}
+
+    def fake_get_importers(*, reveal=False):
+        captured_kwargs.update(reveal=reveal)
+        return [FakeImporter()]
+
+    monkeypatch.setattr(pipeline, "get_importers", fake_get_importers)
+    cli.main(["bootstrap"])
+    cli.main(["extract", "--source", "Test", "--reveal", str(statement)])
+    assert captured_kwargs == {"reveal": True}
+
+
+def test_extract_defaults_reveal_to_false(
+    ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
+) -> None:
+    captured_kwargs: dict = {}
+
+    def fake_get_importers(*, reveal=False):
+        captured_kwargs.update(reveal=reveal)
+        return [FakeImporter()]
+
+    monkeypatch.setattr(pipeline, "get_importers", fake_get_importers)
+    cli.main(["bootstrap"])
+    cli.main(["extract", "--source", "Test", str(statement)])
+    assert captured_kwargs == {"reveal": False}
+
+
 def test_output_contains_no_ansi_escapes(
     ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
 ) -> None:
-    monkeypatch.setattr(pipeline, "get_importers", lambda: [FakeImporter()])
+    monkeypatch.setattr(pipeline, "get_importers", lambda *, reveal=False: [FakeImporter()])
     cli.main(["bootstrap"])
     cli.main(["extract", "--source", "Test", str(statement)])
     captured = capsys.readouterr()
