@@ -43,12 +43,16 @@ from .paths import LedgerPaths
 __all__ = [
     "FX_CACHE_MISSING",
     "FX_RATE_NOT_FOUND",
+    "INSTALLMENT_META_INVALID",
     "LEDGER_INVALID",
     "MAIN_MISSING",
     "MONTH_INVALID",
     "RANGE_INVALID",
+    "InstallmentRow",
+    "InstallmentsSummary",
     "MonthlySummary",
     "SummaryError",
+    "installments",
     "summarize",
     "summarize_range",
 ]
@@ -60,6 +64,7 @@ RANGE_INVALID = "range-invalid"
 LEDGER_INVALID = "ledger-invalid"
 FX_CACHE_MISSING = "fx-cache-missing"
 FX_RATE_NOT_FOUND = "fx-rate-not-found"
+INSTALLMENT_META_INVALID = "installment-meta-invalid"
 
 _EXPENSES_PREFIX = "Expenses:"
 _MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")
@@ -80,6 +85,25 @@ class MonthlySummary:
 
     month: str
     by_account: dict[str, Decimal]
+    total: Decimal
+
+
+@dataclasses.dataclass(frozen=True)
+class InstallmentRow:
+    """One installment plan's cuota due in the report month."""
+
+    payee: str
+    number: int
+    total_installments: int
+    amount_usd: Decimal
+
+
+@dataclasses.dataclass(frozen=True)
+class InstallmentsSummary:
+    """Every installment plan with a cuota due in ``month``, in USD."""
+
+    month: str
+    rows: list[InstallmentRow]
     total: Decimal
 
 
@@ -108,11 +132,9 @@ def _load_entries(paths: LedgerPaths) -> list:
     return list(entries)
 
 
-def _usd_amount(
-    posting: data.Posting, series: fx.Series, cache: fx.FxCache, when: dt.date
-) -> Decimal:
-    if posting.units.currency == "USD":
-        return posting.units.number
+def _usd_amount(units: data.Amount, series: fx.Series, cache: fx.FxCache, when: dt.date) -> Decimal:
+    if units.currency == "USD":
+        return units.number
 
     try:
         cached = cache.load(series)
@@ -124,7 +146,7 @@ def _usd_amount(
     except fx.RateNotFoundError as exc:
         raise SummaryError(FX_RATE_NOT_FOUND, str(exc)) from exc
 
-    return posting.units.number / lookup.used.sell
+    return units.number / lookup.used.sell
 
 
 def _month_total(
@@ -139,7 +161,7 @@ def _month_total(
         for posting in entry.postings:
             if not posting.account.startswith(_EXPENSES_PREFIX):
                 continue
-            usd = _usd_amount(posting, series, cache, entry.date)
+            usd = _usd_amount(posting.units, series, cache, entry.date)
             by_account[posting.account] = by_account.get(posting.account, Decimal(0)) + usd
     return by_account
 
@@ -150,6 +172,11 @@ def _month_key(year: int, month_number: int) -> str:
 
 def _next_month(year: int, month_number: int) -> tuple[int, int]:
     return (year + 1, 1) if month_number == 12 else (year, month_number + 1)
+
+
+def _month_index(year: int, month_number: int) -> int:
+    """A month's position on a single increasing integer axis, for distance math."""
+    return year * 12 + month_number
 
 
 def summarize(paths: LedgerPaths, month: str, series: fx.Series) -> MonthlySummary:
@@ -210,3 +237,101 @@ def summarize_range(
         )
         year, month_number = _next_month(year, month_number)
     return results
+
+
+def _active_installment(
+    entry: data.Transaction, year: int, month_number: int
+) -> tuple[int, int] | None:
+    """Return ``(number, total)`` if ``entry``'s plan has a cuota due in this month.
+
+    ``entry.meta`` must already be known to carry ``"installments"``. ``number`` is
+    1-indexed: the month named by ``"first_due"`` is cuota 1. Returns ``None`` when
+    the target month falls outside ``[first_due, first_due + installments - 1]`` --
+    the plan is projected forward from metadata alone, never from postings, since
+    no future-dated postings exist for an installment plan (see module docstring).
+
+    Raises:
+        SummaryError: ``INSTALLMENT_META_INVALID`` when ``"installments"`` is not
+            a whole number, or when ``"first_due"`` metadata is missing.
+    """
+    try:
+        total = int(entry.meta["installments"])
+    except (TypeError, ValueError) as exc:
+        raise SummaryError(
+            INSTALLMENT_META_INVALID,
+            f"{entry.date} {entry.payee or entry.narration!r}: 'installments' metadata "
+            f"is not a whole number: {entry.meta['installments']!r}.",
+        ) from exc
+
+    try:
+        first_due = entry.meta["first_due"]
+    except KeyError as exc:
+        raise SummaryError(
+            INSTALLMENT_META_INVALID,
+            f"{entry.date} {entry.payee or entry.narration!r}: missing 'first_due' metadata.",
+        ) from exc
+
+    due_year, due_month = _parse_month(first_due)
+    number = _month_index(year, month_number) - _month_index(due_year, due_month) + 1
+    if 1 <= number <= total:
+        return number, total
+    return None
+
+
+def installments(paths: LedgerPaths, month: str, series: fx.Series) -> InstallmentsSummary:
+    """Return every installment plan with a cuota due in ``month``, in USD.
+
+    Nothing here reads future-dated postings -- there are none (see the module
+    docstring): a plan booked once at purchase, carrying ``installments``,
+    ``first_due`` and ``installment_amount`` metadata, is projected forward to
+    decide whether it has a cuota due in ``month``. The per-cuota amount converts
+    to USD with the same rule ``summarize`` uses for an ``Expenses:*`` posting --
+    an already-USD amount passes through unchanged, anything else converts through
+    the cached FX series at the *venta* side, using the first day of ``month`` as
+    the lookup date (a plan's cuota has no posting date of its own to convert at).
+
+    Raises:
+        SummaryError: ``MONTH_INVALID`` for a malformed month (or a malformed
+            ``first_due`` on some plan), ``MAIN_MISSING`` when the ledger was
+            never bootstrapped, ``LEDGER_INVALID`` when the ledger fails a
+            beancount check, ``FX_CACHE_MISSING`` when ``series`` has no local
+            cache yet, ``FX_RATE_NOT_FOUND`` when the target month falls
+            outside the cached series' staleness bound -- a future month's rate
+            legitimately may not exist yet, and that refuses loudly rather than
+            estimating one -- or ``INSTALLMENT_META_INVALID`` when a transaction
+            carrying ``installments`` metadata is missing its ``first_due`` or
+            ``installment_amount`` metadata, or ``installments`` is not a whole
+            number.
+    """
+    year, month_number = _parse_month(month)
+    entries = _load_entries(paths)
+    cache = fx.FxCache(paths)
+    when = dt.date(year, month_number, 1)
+
+    keyed_rows: list[tuple[str, str, InstallmentRow]] = []
+    for entry in entries:
+        if not isinstance(entry, data.Transaction):
+            continue
+        if "installments" not in entry.meta:
+            continue
+        active = _active_installment(entry, year, month_number)
+        if active is None:
+            continue
+        number, total = active
+        try:
+            installment_amount = entry.meta["installment_amount"]
+        except KeyError as exc:
+            raise SummaryError(
+                INSTALLMENT_META_INVALID,
+                f"{entry.date} {entry.payee or entry.narration!r}: missing "
+                f"'installment_amount' metadata.",
+            ) from exc
+        usd = _usd_amount(installment_amount, series, cache, when)
+        payee = entry.payee or entry.narration
+        dedup_key = entry.meta.get("key", "")
+        keyed_rows.append((payee, dedup_key, InstallmentRow(payee, number, total, usd)))
+
+    keyed_rows.sort(key=lambda item: (item[0], item[1]))
+    rows = [row for _payee, _key, row in keyed_rows]
+    total = sum((row.amount_usd for row in rows), Decimal(0))
+    return InstallmentsSummary(month=month, rows=rows, total=total)

@@ -11,6 +11,7 @@ beangulp 0.2.0 ships no console scripts, so this module is the front end over it
     expensuchis append <batch-id>
     expensuchis summary --month YYYY-MM --series {mep,ccl}
     expensuchis summary --from YYYY-MM --to YYYY-MM --series {mep,ccl}
+    expensuchis installments --month YYYY-MM --series {mep,ccl}
 
 Exit codes are stable: ``0`` success, ``1`` a refusal or validation failure (printed
 with a greppable reason code and one human sentence), ``2`` a usage error, ``141`` the
@@ -83,6 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--to", dest="to_month", metavar="YYYY-MM", help="range end, with --from"
     )
     summary_parser.add_argument("--series", required=True, choices=["mep", "ccl"])
+
+    installments_parser = subparsers.add_parser(
+        "installments", help="print the plans with a cuota due in a given month"
+    )
+    installments_parser.add_argument("--month", required=True, metavar="YYYY-MM")
+    installments_parser.add_argument("--series", required=True, choices=["mep", "ccl"])
 
     return parser
 
@@ -186,6 +193,14 @@ def _dispatch(args: argparse.Namespace, paths: LedgerPaths) -> int:
             results = summary.summarize_range(paths, args.from_month, args.to_month, series)
             for result in results:
                 print(f"{result.month}\t{result.total:.2f} USD")
+        return 0
+
+    if args.command == "installments":
+        series = Series.MEP if args.series == "mep" else Series.CCL
+        result = summary.installments(paths, args.month, series)
+        for row in result.rows:
+            print(f"{row.payee}\t{row.number}/{row.total_installments}\t{row.amount_usd:.2f} USD")
+        print(f"total\t{result.total:.2f} USD")
         return 0
 
     raise AssertionError(f"unhandled command {args.command!r}")  # pragma: no cover

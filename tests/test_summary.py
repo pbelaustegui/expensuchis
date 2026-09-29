@@ -16,7 +16,7 @@ from expensuchis import summary
 from expensuchis.fx import FxCache, Quote, Series
 from expensuchis.ledger import ENV_VAR
 from expensuchis.paths import LedgerPaths
-from expensuchis.summary import MonthlySummary, SummaryError
+from expensuchis.summary import InstallmentRow, InstallmentsSummary, MonthlySummary, SummaryError
 
 ACCOUNTS = (
     "2020-01-01 open Equity:Opening-Balances\n"
@@ -349,3 +349,317 @@ def test_summarize_range_propagates_a_beancount_load_error(ledger: LedgerPaths) 
     with pytest.raises(SummaryError) as excinfo:
         summary.summarize_range(ledger, "2026-03", "2026-03", Series.MEP)
     assert excinfo.value.reason == summary.LEDGER_INVALID
+
+
+# --- installments view (T-N+1, third deliverable) ---------------------------------
+
+
+def test_one_plan_with_a_cuota_due_reports_its_row(ledger: LedgerPaths) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 2, 1), Decimal(500), Decimal(500))])
+    _write_month(
+        ledger,
+        "2026-01",
+        '2026-01-15 * "Store" "Washing machine"\n'
+        '  key: "k1"\n'
+        "  installments: 6\n"
+        '  first_due: "2026-02"\n'
+        "  installment_amount: 500.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    result = summary.installments(ledger, "2026-02", Series.MEP)
+
+    assert result.rows == [
+        InstallmentRow(payee="Store", number=1, total_installments=6, amount_usd=Decimal("1.00"))
+    ]
+    assert result.total == Decimal("1.00")
+
+
+def test_multiple_plans_sorted_by_payee(ledger: LedgerPaths) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 2, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-01",
+        '2025-12-01 * "Bike Shop" "Bicycle"\n'
+        '  key: "k2"\n'
+        "  installments: 3\n"
+        '  first_due: "2026-01"\n'
+        "  installment_amount: 1000.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n"
+        "\n"
+        '2026-01-10 * "Store" "Washing machine"\n'
+        '  key: "k1"\n'
+        "  installments: 6\n"
+        '  first_due: "2026-02"\n'
+        "  installment_amount: 500.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    result = summary.installments(ledger, "2026-02", Series.MEP)
+
+    assert [row.payee for row in result.rows] == ["Bike Shop", "Store"]
+    assert result.rows[0].number == 2
+    assert result.rows[0].total_installments == 3
+    assert result.rows[0].amount_usd == Decimal("1.00")
+    assert result.rows[1].number == 1
+    assert result.rows[1].total_installments == 6
+    assert result.rows[1].amount_usd == Decimal("0.50")
+    assert result.total == Decimal("1.50")
+
+
+def test_plan_before_first_due_is_excluded(ledger: LedgerPaths) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 2, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-01",
+        '2026-01-01 * "Store" "Future plan"\n'
+        '  key: "k1"\n'
+        "  installments: 6\n"
+        '  first_due: "2026-05"\n'
+        "  installment_amount: 500.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    result = summary.installments(ledger, "2026-02", Series.MEP)
+
+    assert result == InstallmentsSummary(month="2026-02", rows=[], total=Decimal(0))
+
+
+def test_plan_after_last_installment_is_excluded(ledger: LedgerPaths) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 4, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-01",
+        '2026-01-01 * "Store" "Two-installment plan"\n'
+        '  key: "k1"\n'
+        "  installments: 2\n"
+        '  first_due: "2026-01"\n'
+        "  installment_amount: 500.00 ARS\n"
+        "  Expenses:Compras       1000.00 ARS\n"
+        "  Liabilities:Test:Visa -1000.00 ARS\n",
+    )
+
+    result = summary.installments(ledger, "2026-04", Series.MEP)
+
+    assert result.rows == []
+
+
+def test_single_installment_plan_is_active_only_in_its_first_due_month(
+    ledger: LedgerPaths,
+) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 3, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "One-off plan"\n'
+        '  key: "k1"\n'
+        "  installments: 1\n"
+        '  first_due: "2026-03"\n'
+        "  installment_amount: 1000.00 ARS\n"
+        "  Expenses:Compras       1000.00 ARS\n"
+        "  Liabilities:Test:Visa -1000.00 ARS\n",
+    )
+
+    result = summary.installments(ledger, "2026-03", Series.MEP)
+    assert result.rows == [
+        InstallmentRow(payee="Store", number=1, total_installments=1, amount_usd=Decimal("1.00"))
+    ]
+
+    # Neither neighbouring month has a cached FX quote; both must still succeed
+    # because a plan excluded on month arithmetic alone never reaches FX lookup.
+    before = summary.installments(ledger, "2026-02", Series.MEP)
+    assert before.rows == []
+    after = summary.installments(ledger, "2026-04", Series.MEP)
+    assert after.rows == []
+
+
+def test_last_installment_boundary_month_is_active(ledger: LedgerPaths) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 3, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-01",
+        '2026-01-01 * "Store" "Three-installment plan"\n'
+        '  key: "k1"\n'
+        "  installments: 3\n"
+        '  first_due: "2026-01"\n'
+        "  installment_amount: 500.00 ARS\n"
+        "  Expenses:Compras       1500.00 ARS\n"
+        "  Liabilities:Test:Visa -1500.00 ARS\n",
+    )
+
+    result = summary.installments(ledger, "2026-03", Series.MEP)
+
+    assert result.rows == [
+        InstallmentRow(payee="Store", number=3, total_installments=3, amount_usd=Decimal("0.50"))
+    ]
+
+
+def test_transaction_without_installments_meta_is_never_included(ledger: LedgerPaths) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 3, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "Ordinary purchase"\n'
+        '  key: "k1"\n'
+        "  Expenses:Compras       1000.00 ARS\n"
+        "  Assets:Test:Caja      -1000.00 ARS\n",
+    )
+
+    result = summary.installments(ledger, "2026-03", Series.MEP)
+
+    assert result == InstallmentsSummary(month="2026-03", rows=[], total=Decimal(0))
+
+
+def test_missing_payee_falls_back_to_narration(ledger: LedgerPaths) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2026, 3, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Appliance financed in three parts"\n'
+        '  key: "k1"\n'
+        "  installments: 3\n"
+        '  first_due: "2026-03"\n'
+        "  installment_amount: 1000.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    result = summary.installments(ledger, "2026-03", Series.MEP)
+
+    assert result.rows[0].payee == "Appliance financed in three parts"
+
+
+def test_usd_installment_amount_uses_the_raw_usd_amount_with_no_fx_lookup(
+    ledger: LedgerPaths,
+) -> None:
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "USD plan"\n'
+        '  key: "k1"\n'
+        "  installments: 3\n"
+        '  first_due: "2026-03"\n'
+        "  installment_amount: 15.00 USD\n"
+        "  Expenses:Compras       45.00 USD\n"
+        "  Liabilities:Test:Visa -45.00 USD\n",
+    )
+
+    result = summary.installments(ledger, "2026-03", Series.MEP)
+
+    assert result.rows[0].amount_usd == Decimal("15.00")
+
+
+def test_installments_refuses_a_malformed_month(ledger: LedgerPaths) -> None:
+    with pytest.raises(SummaryError) as excinfo:
+        summary.installments(ledger, "not-a-month", Series.MEP)
+    assert excinfo.value.reason == summary.MONTH_INVALID
+
+
+def test_installments_refuses_a_missing_main_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "ledger"
+    root.mkdir()
+    monkeypatch.setenv(ENV_VAR, str(root))
+    paths = LedgerPaths()
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.installments(paths, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.MAIN_MISSING
+
+
+def test_installments_propagates_missing_fx_cache_for_an_active_plan(
+    ledger: LedgerPaths,
+) -> None:
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "Plan"\n'
+        '  key: "k1"\n'
+        "  installments: 3\n"
+        '  first_due: "2026-03"\n'
+        "  installment_amount: 1000.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.installments(ledger, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.FX_CACHE_MISSING
+
+
+def test_installments_refuses_a_stale_fx_rate_for_the_target_month(ledger: LedgerPaths) -> None:
+    _seed_fx(ledger, Series.MEP, [Quote(dt.date(2025, 1, 1), Decimal(1000), Decimal(1000))])
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "Plan"\n'
+        '  key: "k1"\n'
+        "  installments: 3\n"
+        '  first_due: "2026-03"\n'
+        "  installment_amount: 1000.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.installments(ledger, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.FX_RATE_NOT_FOUND
+
+
+def test_installments_refuses_a_plan_missing_first_due_metadata(ledger: LedgerPaths) -> None:
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "Plan missing first_due"\n'
+        '  key: "k1"\n'
+        "  installments: 3\n"
+        "  installment_amount: 1000.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.installments(ledger, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.INSTALLMENT_META_INVALID
+
+
+def test_installments_refuses_a_plan_missing_installment_amount_metadata(
+    ledger: LedgerPaths,
+) -> None:
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "Plan missing installment_amount"\n'
+        '  key: "k1"\n'
+        "  installments: 3\n"
+        '  first_due: "2026-03"\n'
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.installments(ledger, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.INSTALLMENT_META_INVALID
+
+
+def test_installments_refuses_a_non_numeric_installments_value(ledger: LedgerPaths) -> None:
+    _write_month(
+        ledger,
+        "2026-03",
+        '2026-03-01 * "Store" "Plan with a bad installments count"\n'
+        '  key: "k1"\n'
+        '  installments: "six"\n'
+        '  first_due: "2026-03"\n'
+        "  installment_amount: 1000.00 ARS\n"
+        "  Expenses:Compras       3000.00 ARS\n"
+        "  Liabilities:Test:Visa -3000.00 ARS\n",
+    )
+
+    with pytest.raises(SummaryError) as excinfo:
+        summary.installments(ledger, "2026-03", Series.MEP)
+    assert excinfo.value.reason == summary.INSTALLMENT_META_INVALID
