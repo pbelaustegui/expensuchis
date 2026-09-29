@@ -394,8 +394,13 @@ def _unclassified_message(unclassified: dict[str, tuple[Movement, str]]) -> str:
     movement that named each counterparty supplies the displayed date, amount
     and concept. Both the displayed concept and the displayed raw name have
     any CUIT-shaped run redacted; when the raw name *is* a redacted CUIT (a
-    sent transfer), the append suggestion cannot show it and instead points at
-    the private ledger, which already carries the real value by design.
+    sent transfer), the append suggestion cannot show it. This refusal fires
+    from inside the importer's own ``extract``, before ``pipeline.extract``
+    ever writes a staging directory (a failing importer raises before any
+    entries are staged), so there is no ledger-side file yet that could carry
+    the real value either: the message instead points the reader at the
+    original statement's own sent-transfers section, matched by date and
+    amount, which is the only place the digits already exist.
     """
     lines = [f"{len(unclassified)} counterparties are not classified."]
     for raw_name, (movement, commodity) in unclassified.items():
@@ -406,9 +411,11 @@ def _unclassified_message(unclassified: dict[str, tuple[Movement, str]]) -> str:
         )
         if redacted_name != raw_name:
             lines.append(
-                "    this counterparty's identity is a redacted recipient CUIT; "
-                "copy the exact value from the private ledger's staged transaction "
-                "(never from this message) before appending to counterparties.tsv:"
+                "    this counterparty's identity is a redacted recipient CUIT, never "
+                "shown here or written to any staged file at this point (extract "
+                "refuses before staging anything). Read it from the original "
+                "statement's own sent-transfers section, matched by this date and "
+                "amount, before appending to counterparties.tsv:"
             )
             lines.append(f"      {SOURCE}\t<recipient CUIT>\texpense:<category>")
         else:

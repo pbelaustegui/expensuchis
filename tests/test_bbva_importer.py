@@ -405,7 +405,8 @@ def test_an_unclassified_transfer_out_redacts_the_cuit_in_the_refusal() -> None:
     assert "20000000001" not in message
     assert "20000000002" not in message
     assert "<cuit>" in message
-    assert "copy the exact value from the private ledger" in message
+    assert "the original statement's own sent-transfers section" in message
+    assert "staged transaction" not in message
 
 
 def test_an_unclassified_transfer_in_shows_its_stripped_name() -> None:
