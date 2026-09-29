@@ -61,6 +61,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     extract_parser.add_argument("--source", required=True, metavar="NAME", help="source name")
     extract_parser.add_argument("path", metavar="PATH", help="statement file to extract")
+    extract_parser.add_argument(
+        "--reveal",
+        action="store_true",
+        help=(
+            "show the real recipient CUIT in a redacted refusal message instead of "
+            "the default placeholder; for the owner at a terminal only -- never pass "
+            "this where the output is read by an agent or a remote model"
+        ),
+    )
 
     report_parser = subparsers.add_parser("report", help="print a staged batch's review report")
     report_parser.add_argument("batch_id", metavar="BATCH-ID")
@@ -158,7 +167,9 @@ def _dispatch(args: argparse.Namespace, paths: LedgerPaths) -> int:
         return 0
 
     if args.command == "extract":
-        result = pipeline.extract(paths, args.source, args.path)
+        result = pipeline.extract(
+            paths, args.source, args.path, importers=pipeline.get_importers(reveal=args.reveal)
+        )
         print(f"batch_id: {result.batch_id}")
         print(f"report_path: {result.report_path}")
         print(f"entries: {result.entries}  skipped: {result.skipped}")

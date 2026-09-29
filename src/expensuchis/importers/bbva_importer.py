@@ -387,7 +387,9 @@ def _redact_cuit(text: str) -> str:
     return _CUIT_RUN_RE.sub("<cuit>", text)
 
 
-def _unclassified_message(unclassified: dict[str, tuple[Movement, str]]) -> str:
+def _unclassified_message(
+    unclassified: dict[str, tuple[Movement, str]], *, reveal: bool = False
+) -> str:
     """Build the pinned refusal message for the unique unclassified counterparties.
 
     The count is of **unique counterparties**, not movements, and the first
@@ -401,13 +403,23 @@ def _unclassified_message(unclassified: dict[str, tuple[Movement, str]]) -> str:
     the real value either: the message instead points the reader at the
     original statement's own sent-transfers section, matched by date and
     amount, which is the only place the digits already exist.
+
+    ``reveal=True`` is the opt-in escape hatch, mirroring
+    :mod:`expensuchis.leakguard`'s own ``--reveal`` (T-01d): it skips
+    :func:`_redact_cuit` entirely for the displayed concept and raw name, and
+    the append suggestion shows the real ``raw_name`` instead of the
+    ``<recipient CUIT>`` placeholder -- there is nothing left to hide once the
+    caller has opted in. It exists for the owner reading a terminal directly,
+    never for output an agent or a remote model might read, which is why the
+    default stays redacted and this parameter is keyword-only.
     """
     lines = [f"{len(unclassified)} counterparties are not classified."]
     for raw_name, (movement, commodity) in unclassified.items():
-        redacted_name = _redact_cuit(raw_name)
+        displayed_concept = movement.concept if reveal else _redact_cuit(movement.concept)
+        redacted_name = raw_name if reveal else _redact_cuit(raw_name)
         lines.append(
             f"  {movement.date.isoformat()}  {movement.amount:,.2f} {commodity}  "
-            f'"{_redact_cuit(movement.concept)}"  "{redacted_name}"'
+            f'"{displayed_concept}"  "{redacted_name}"'
         )
         if redacted_name != raw_name:
             lines.append(
@@ -450,7 +462,11 @@ def _entry(
 
 
 def build_entries(
-    extracto: ExtractoConsolidado, person: str, counterparty_map: CounterpartyMap
+    extracto: ExtractoConsolidado,
+    person: str,
+    counterparty_map: CounterpartyMap,
+    *,
+    reveal: bool = False,
 ) -> list[data.Transaction]:
     """Turn a reconciled statement into beancount transactions.
 
@@ -466,7 +482,9 @@ def build_entries(
         CounterpartyClassificationError: at least one debit-card purchase,
             sent transfer or received transfer names a counterparty absent
             from the map. Every unknown counterparty is collected before the
-            refusal, so one run tells the whole story.
+            refusal, so one run tells the whole story. ``reveal`` is threaded
+            straight to :func:`_unclassified_message`, unredacted only when the
+            caller opts in.
     """
     account_for = _resolve_account_routes(extracto.blocks, person)
     keys = movement_keys(extracto.movements)
@@ -498,7 +516,7 @@ def build_entries(
         entries.append(_entry(movement, cash_account, commodity, counterpart, key, payee))
 
     if unclassified:
-        raise CounterpartyClassificationError(_unclassified_message(unclassified))
+        raise CounterpartyClassificationError(_unclassified_message(unclassified, reveal=reveal))
     return entries
 
 
@@ -512,7 +530,13 @@ class BBVAImporter(Importer):
     default to :func:`expensuchis.importers.pdf.read_pdf` and
     :func:`expensuchis.importers.pdf.read_creation_date`. ``year`` is the
     explicit anchor-year override the parser accepts (T-07 owner decision 6):
-    when given, ``date_reader`` is never called at all.
+    when given, ``date_reader`` is never called at all. ``reveal`` is threaded
+    straight to :func:`build_entries` and, from there, to
+    :func:`_unclassified_message`: it opts a ``CounterpartyClassificationError``
+    refusal into showing a sent transfer's real recipient CUIT instead of the
+    default ``<cuit>`` placeholder, mirroring
+    :mod:`expensuchis.leakguard`'s own ``--reveal`` -- owner-only, at a
+    terminal, never where an agent or a remote model reads the output.
     """
 
     def __init__(
@@ -521,11 +545,13 @@ class BBVAImporter(Importer):
         text_reader: Callable[[str], str] | None = None,
         date_reader: Callable[[str], dt.date | None] | None = None,
         year: int | None = None,
+        reveal: bool = False,
     ) -> None:
         self._counterparty_map = counterparty_map
         self._text_reader = text_reader
         self._date_reader = date_reader
         self._year = year
+        self._reveal = reveal
 
     @property
     def name(self) -> str:
@@ -611,7 +637,7 @@ class BBVAImporter(Importer):
         counterparty_map = (
             self._counterparty_map if self._counterparty_map is not None else CounterpartyMap()
         )
-        return build_entries(extracto, person, counterparty_map)
+        return build_entries(extracto, person, counterparty_map, reveal=self._reveal)
 
     def _read_text(self, filepath: str) -> str:
         if self._text_reader is not None:
