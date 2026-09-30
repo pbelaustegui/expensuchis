@@ -169,9 +169,11 @@ def _print_account_diagnoses(paths: LedgerPaths, statements: Sequence[str]) -> N
     """Print each statement's importer, posted accounts and unopened accounts.
 
     Account names and dates only: never a counterparty, narration or holder name.
+    Every statement is diagnosed before anything is printed, so a refusal on a later
+    statement never leaves partial output behind.
     """
-    for statement in statements:
-        diagnosis = pipeline.diagnose(paths, statement)
+    diagnoses = [(statement, pipeline.diagnose(paths, statement)) for statement in statements]
+    for statement, diagnosis in diagnoses:
         print(f"{statement}\t{diagnosis.importer}")
         print("accounts:")
         for account in diagnosis.accounts:

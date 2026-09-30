@@ -206,6 +206,21 @@ def test_identify_accounts_keeps_the_refusal_path(
     assert err.startswith("refused: no-importer:")
 
 
+def test_identify_accounts_prints_nothing_when_a_later_statement_is_refused(
+    ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
+) -> None:
+    entries = [make_entry(dt.date(2026, 1, 5), "k1")]
+    monkeypatch.setattr(pipeline, "get_importers", lambda: [FakeImporter(entries=entries)])
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text(ACCOUNTS, encoding="utf-8")
+    capsys.readouterr()
+    missing = statement.with_name("missing.csv")
+    assert cli.main(["identify", "--accounts", str(statement), str(missing)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("refused: statement-missing:")
+
+
 def test_extract_without_an_importer_refuses(ledger: LedgerPaths, capsys, statement: Path) -> None:
     cli.main(["bootstrap"])
     assert cli.main(["extract", "--source", "Test", str(statement)]) == 1
