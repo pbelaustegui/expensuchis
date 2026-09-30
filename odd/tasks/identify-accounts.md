@@ -63,8 +63,8 @@ Strategy: ask-on-risk. Forecast ~200 authored lines: single PR.
 - Parent spot check (after all commits): `uv run pytest -q`: 1027 passed, 7 skipped; `uv run ruff check .`: all checks passed; `uv run ruff format --check .`: 72 files already formatted.
 - Size: 277 insertions, 19 deletions across 5 files (under the ~400 heuristic). Single PR.
 - Decisions: `Diagnosis.first_dates` gives suggested `open` lines the earliest entry date per missing account instead of a placeholder; shared `_run_importer` helper keeps `extract` behavior unchanged; CLI uses default `get_importers()` (no `reveal`).
-- Native review: assessment was `unassessable` while this file was untracked; treated as high/due, review preflight run after committing this file.
+- Native review (tier high, `process_boundary` signal in tests/test_pipeline.py; consent granted): 4 lenses, approved, acknowledged, authority burned. No blocking findings; 11 advisory (warnings/suggestions) on pipeline.py 389-419 (readability/reliability), cli.py 168-190 and pipeline.py 411 (resilience, incl. partial output before a refusal on multi-file `identify --accounts`). Follow-up work, not a reason to re-review.
 
 ## Next step
 
-Native review preflight on the committed range vs main, then open a PR (user decision).
+Push and open a PR (user decision). Optional follow-up: address the advisory findings.
