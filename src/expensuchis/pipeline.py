@@ -25,9 +25,10 @@ import dataclasses
 import datetime as dt
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from pathlib import Path
+from types import MappingProxyType
 
 from beancount import loader
 from beancount.core import data
@@ -212,26 +213,31 @@ class ExtractResult:
     skipped: int
 
 
+_EMPTY_DATES: Mapping[str, dt.date] = MappingProxyType({})
+
+
 @dataclasses.dataclass(frozen=True)
 class Diagnosis:
     """What one statement would post to, and which of those accounts are not open yet.
 
     Only account names and dates: never a counterparty, narration or basename.
     ``first_dates`` maps each missing account (no ``open`` directive at all) to the earliest
-    entry date that posts to it. ``opened_late`` maps each account that has an ``open``
+    entry date that posts to it (only the missing accounts: an account that is open, late or
+    not, never appears there). ``opened_late`` maps each account that has an ``open``
     directive, but only dated after the statement's earliest entry for it, to its earliest
     open date; ``late_first_dates`` gives that earliest entry date. Late accounts are never
     listed in ``missing``. ``ledger_errors`` is the number of errors the beancount loader
     reported for ``main.beancount`` (the count only, never the messages, which can quote
-    payees); a non-zero value means ``open`` directives may have been dropped.
+    payees); a non-zero value means ``open`` directives may have been dropped. The three
+    mappings are read-only views.
     """
 
     importer: str
     accounts: tuple[str, ...]
     missing: tuple[str, ...]
-    first_dates: dict[str, dt.date]
-    opened_late: dict[str, dt.date] = dataclasses.field(default_factory=dict)
-    late_first_dates: dict[str, dt.date] = dataclasses.field(default_factory=dict)
+    first_dates: Mapping[str, dt.date]
+    opened_late: Mapping[str, dt.date] = _EMPTY_DATES
+    late_first_dates: Mapping[str, dt.date] = _EMPTY_DATES
     ledger_errors: int = 0
 
 
@@ -402,39 +408,46 @@ def diagnose(
     statement = Path(statement_path)
     if not statement.is_file():
         raise PipelineError(STATEMENT_MISSING, f"Statement {statement} does not exist.")
-    (identification,) = identify([statement], importers=importers)
-    importer = identification.importer
-
     main = paths.main()
     if not main.is_file():
         raise PipelineError(MAIN_MISSING, f"{main} does not exist.")
-
-    entries = _run_importer(paths, importer, statement)
-    first_dates: dict[str, dt.date] = {}
-    for entry in entries:
-        for posting in getattr(entry, "postings", None) or []:
-            date = entry.date
-            if posting.account not in first_dates or date < first_dates[posting.account]:
-                first_dates[posting.account] = date
+    (identification,) = identify([statement], importers=importers)
+    importer = identification.importer
 
     ledger_entries, ledger_errors, _options = loader.load_file(main)
+    entries = _run_importer(paths, importer, statement, existing=list(ledger_entries))
+
+    first_dates: dict[str, dt.date] = {}
+    for entry in entries:
+        for account in _entry_accounts(entry):
+            first_dates[account] = min(entry.date, first_dates.get(account, entry.date))
+
     open_dates: dict[str, dt.date] = {}
     for entry in ledger_entries:
-        if isinstance(entry, data.Open) and (
-            entry.account not in open_dates or entry.date < open_dates[entry.account]
-        ):
-            open_dates[entry.account] = entry.date
+        if isinstance(entry, data.Open):
+            open_dates[entry.account] = min(entry.date, open_dates.get(entry.account, entry.date))
     missing = tuple(sorted(set(first_dates) - set(open_dates)))
     late = sorted(a for a in first_dates if a in open_dates and open_dates[a] > first_dates[a])
     return Diagnosis(
         importer=importer.name,
         accounts=tuple(sorted(first_dates)),
         missing=missing,
-        first_dates={account: first_dates[account] for account in missing},
-        opened_late={account: open_dates[account] for account in late},
-        late_first_dates={account: first_dates[account] for account in late},
+        first_dates=MappingProxyType({account: first_dates[account] for account in missing}),
+        opened_late=MappingProxyType({account: open_dates[account] for account in late}),
+        late_first_dates=MappingProxyType({account: first_dates[account] for account in late}),
         ledger_errors=len(ledger_errors),
     )
+
+
+def _entry_accounts(entry: object) -> list[str]:
+    """Return every account ``entry`` touches: postings, or the account of a directive."""
+    if isinstance(entry, data.Transaction):
+        return [posting.account for posting in entry.postings or []]
+    if isinstance(entry, data.Pad):
+        return [entry.account, entry.source_account]
+    if isinstance(entry, (data.Balance, data.Note, data.Document)):
+        return [entry.account]
+    return []
 
 
 # ------------------------------------------------------------------------------ Approve
@@ -597,9 +610,18 @@ def _validate_source(source: str) -> None:
         )
 
 
-def _run_importer(paths: LedgerPaths, importer: Importer, statement: Path) -> list:
-    """Run ``importer`` on ``statement`` in memory, wrapping any failure as a refusal."""
-    existing = _load_existing(paths)
+def _run_importer(
+    paths: LedgerPaths,
+    importer: Importer,
+    statement: Path,
+    existing: list | None = None,
+) -> list:
+    """Run ``importer`` on ``statement`` in memory, wrapping any failure as a refusal.
+
+    ``existing`` is the already-loaded ledger; when ``None`` it is loaded from ``main.beancount``.
+    """
+    if existing is None:
+        existing = _load_existing(paths)
     try:
         return list(importer.extract(str(statement.resolve()), existing) or [])
     except Exception as exc:

@@ -562,3 +562,22 @@ def test_identify_accounts_is_silent_on_stderr_for_a_clean_ledger(
     capsys.readouterr()
     assert cli.main(["identify", "--accounts", str(statement)]) == 0
     assert capsys.readouterr().err == ""
+
+
+def test_identify_accounts_prints_each_statement_block_in_argument_order(
+    ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
+) -> None:
+    entries = [make_entry(dt.date(2026, 1, 5), "k1")]
+    monkeypatch.setattr(pipeline, "get_importers", lambda: [FakeImporter(entries=entries)])
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text(ACCOUNTS, encoding="utf-8")
+    other = statement.with_name("other.csv")
+    other.write_text("synthetic,content\n", encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["identify", "--accounts", str(other), str(statement)]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    headers = [line for line in lines if "\t" in line]
+    assert headers == [f"{other}\ttest.importer.Fake", f"{statement}\ttest.importer.Fake"]
+    assert lines[0] == headers[0]
+    assert lines.index(headers[0]) < lines.index(headers[1])
+    assert lines.count("accounts:") == 2
