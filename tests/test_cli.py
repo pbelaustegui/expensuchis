@@ -152,6 +152,60 @@ def test_identify_lists_the_matching_importer(
     assert "test.importer.Fake" in out
 
 
+def test_identify_without_accounts_keeps_the_plain_line(
+    ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
+) -> None:
+    monkeypatch.setattr(pipeline, "get_importers", lambda: [FakeImporter()])
+    cli.main(["bootstrap"])
+    capsys.readouterr()
+    assert cli.main(["identify", str(statement)]) == 0
+    assert capsys.readouterr().out == f"{statement}\ttest.importer.Fake\n"
+
+
+def test_identify_accounts_lists_accounts_and_none_missing(
+    ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
+) -> None:
+    entries = [make_entry(dt.date(2026, 1, 5), "k1")]
+    monkeypatch.setattr(pipeline, "get_importers", lambda: [FakeImporter(entries=entries)])
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text(ACCOUNTS, encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["identify", "--accounts", str(statement)]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == f"{statement}\ttest.importer.Fake"
+    assert "  Assets:Test:Caja" in lines
+    assert "  Expenses:Otros" in lines
+    assert "missing: none" in lines
+
+
+def test_identify_accounts_suggests_an_open_line_for_each_unopened_account(
+    ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
+) -> None:
+    entries = [make_entry(dt.date(2026, 1, 5), "k1")]
+    monkeypatch.setattr(pipeline, "get_importers", lambda: [FakeImporter(entries=entries)])
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text("2020-01-01 open Assets:Test:Caja\n", encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["identify", "--accounts", str(statement)]) == 0
+    out = capsys.readouterr().out
+    assert "missing: none" not in out
+    assert "2026-01-05 open Expenses:Otros" in out.splitlines()
+    assert "2026-01-05 open Assets:Test:Caja" not in out
+    assert "Payee" not in out
+    assert "Narration" not in out
+    assert statement.name not in out.replace(str(statement), "")
+
+
+def test_identify_accounts_keeps_the_refusal_path(
+    ledger: LedgerPaths, capsys, statement: Path
+) -> None:
+    cli.main(["bootstrap"])
+    capsys.readouterr()
+    assert cli.main(["identify", "--accounts", str(statement)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("refused: no-importer:")
+
+
 def test_extract_without_an_importer_refuses(ledger: LedgerPaths, capsys, statement: Path) -> None:
     cli.main(["bootstrap"])
     assert cli.main(["extract", "--source", "Test", str(statement)]) == 1
