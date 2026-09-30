@@ -978,3 +978,87 @@ def test_diagnose_counts_loader_errors_and_still_returns(
     result = pipeline.diagnose(ledger, statement, importers=[importer])
     assert result.ledger_errors >= 1
     assert result.accounts == ("Assets:Test:Caja", "Expenses:Otros")
+
+
+def _meta() -> dict:
+    return {"filename": "<test>", "lineno": 1}
+
+
+def test_diagnose_counts_accounts_of_non_posting_directives(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    entries = [
+        data.Balance(
+            _meta(),
+            dt.date(2026, 1, 9),
+            "Assets:Bal",
+            amount.Amount(Decimal(1), "ARS"),
+            None,
+            None,
+        ),
+        data.Note(_meta(), dt.date(2026, 1, 8), "Assets:Note", "hi", None, None),
+        data.Document(_meta(), dt.date(2026, 1, 7), "Assets:Doc", "/x.pdf", None, None),
+        data.Pad(_meta(), dt.date(2026, 1, 6), "Assets:PadTarget", "Equity:PadSource"),
+    ]
+    importer = FakeImporter("test.importer.Fake", entries=entries)
+    result = pipeline.diagnose(ledger, statement, importers=[importer])
+    assert result.accounts == (
+        "Assets:Bal",
+        "Assets:Doc",
+        "Assets:Note",
+        "Assets:PadTarget",
+        "Equity:PadSource",
+    )
+    assert result.first_dates == {
+        "Assets:Bal": dt.date(2026, 1, 9),
+        "Assets:Doc": dt.date(2026, 1, 7),
+        "Assets:Note": dt.date(2026, 1, 8),
+        "Assets:PadTarget": dt.date(2026, 1, 6),
+        "Equity:PadSource": dt.date(2026, 1, 6),
+    }
+
+
+def test_diagnose_lists_an_account_once_and_keeps_the_earliest_date(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    first = make_entry(dt.date(2026, 3, 1), "k1", account="Expenses:New")
+    first.postings.append(
+        data.Posting("Expenses:New", amount.Amount(Decimal(1), "ARS"), None, None, None, None)
+    )
+    second = make_entry(dt.date(2026, 2, 1), "k2", account="Expenses:New")
+    importer = FakeImporter("test.importer.Fake", entries=[first, second])
+    result = pipeline.diagnose(ledger, statement, importers=[importer])
+    assert result.accounts.count("Expenses:New") == 1
+    assert result.first_dates["Expenses:New"] == dt.date(2026, 2, 1)
+
+
+def test_diagnose_ignores_an_entry_without_postings(ledger: LedgerPaths, statement: Path) -> None:
+    write_ledger(ledger)
+    empty = make_entry(dt.date(2026, 1, 5), "k1")
+    empty.postings.clear()
+    importer = FakeImporter("test.importer.Fake", entries=[empty])
+    result = pipeline.diagnose(ledger, statement, importers=[importer])
+    assert result.accounts == ()
+    assert result.missing == ()
+
+
+def test_diagnose_refuses_a_missing_main_before_looking_for_an_importer(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    with pytest.raises(pipeline.PipelineError) as excinfo:
+        pipeline.diagnose(ledger, statement, importers=[FakeImporter("x", match=False)])
+    assert excinfo.value.reason == pipeline.MAIN_MISSING
+
+
+def test_diagnosis_maps_are_read_only(ledger: LedgerPaths, statement: Path) -> None:
+    write_ledger(ledger)
+    importer = FakeImporter(
+        "test.importer.Fake",
+        entries=[make_entry(dt.date(2026, 1, 5), "k1", account="Expenses:New")],
+    )
+    result = pipeline.diagnose(ledger, statement, importers=[importer])
+    for mapping in (result.first_dates, result.opened_late, result.late_first_dates):
+        with pytest.raises(TypeError):
+            mapping["Expenses:X"] = dt.date(2026, 1, 1)  # type: ignore[index]
