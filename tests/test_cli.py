@@ -504,3 +504,25 @@ def test_installments_refuses_when_the_fx_cache_is_missing(ledger: LedgerPaths, 
 
     assert cli.main(["installments", "--month", "2026-01", "--series", "mep"]) == 1
     assert summary.FX_CACHE_MISSING in capsys.readouterr().err
+
+
+def test_identify_accounts_prints_the_opened_too_late_section(
+    ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
+) -> None:
+    entries = [make_entry(dt.date(2026, 1, 5), "k1")]
+    monkeypatch.setattr(pipeline, "get_importers", lambda: [FakeImporter(entries=entries)])
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text(
+        "2020-01-01 open Assets:Test:Caja\n2026-03-01 open Expenses:Otros\n", encoding="utf-8"
+    )
+    capsys.readouterr()
+    assert cli.main(["identify", "--accounts", str(statement)]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "missing: none" in lines
+    header = (
+        "opened too late (an open directive exists but is dated after this statement's "
+        "earliest entry; move its date to on or before the date shown):"
+    )
+    assert (
+        lines[lines.index(header) + 1] == "2026-01-05 open Expenses:Otros  # currently 2026-03-01"
+    )

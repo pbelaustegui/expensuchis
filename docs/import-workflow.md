@@ -71,6 +71,11 @@ as a ready-to-paste line dated at that account's earliest entry in the statement
 expensuchis identify --accounts statement.pdf
 ```
 
+An account that has an `open` directive dated *after* the statement's earliest entry for it
+is not missing, but `bean-check` would still reject the posting. Those accounts are listed
+in an extra "opened too late" section as `<earliest-entry-date> open <account>  # currently
+<open-date>`: move the existing directive's date to on or before the date shown.
+
 It only reports: it writes nothing (no staging batch, no ledger file), and you paste the
 `open` lines into `accounts.beancount` yourself, moving a date earlier if older movements
 exist. Its output carries account names and dates only, never counterparty names. A

@@ -217,13 +217,19 @@ class Diagnosis:
     """What one statement would post to, and which of those accounts are not open yet.
 
     Only account names and dates: never a counterparty, narration or basename.
-    ``first_dates`` maps each missing account to the earliest entry date that posts to it.
+    ``first_dates`` maps each missing account (no ``open`` directive at all) to the earliest
+    entry date that posts to it. ``opened_late`` maps each account that has an ``open``
+    directive, but only dated after the statement's earliest entry for it, to its earliest
+    open date; ``late_first_dates`` gives that earliest entry date. Late accounts are never
+    listed in ``missing``.
     """
 
     importer: str
     accounts: tuple[str, ...]
     missing: tuple[str, ...]
     first_dates: dict[str, dt.date]
+    opened_late: dict[str, dt.date] = dataclasses.field(default_factory=dict)
+    late_first_dates: dict[str, dt.date] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -409,13 +415,21 @@ def diagnose(
                 first_dates[posting.account] = date
 
     ledger_entries, _errors, _options = loader.load_file(main)
-    opened = {entry.account for entry in ledger_entries if isinstance(entry, data.Open)}
-    missing = tuple(sorted(set(first_dates) - opened))
+    open_dates: dict[str, dt.date] = {}
+    for entry in ledger_entries:
+        if isinstance(entry, data.Open) and (
+            entry.account not in open_dates or entry.date < open_dates[entry.account]
+        ):
+            open_dates[entry.account] = entry.date
+    missing = tuple(sorted(set(first_dates) - set(open_dates)))
+    late = sorted(a for a in first_dates if a in open_dates and open_dates[a] > first_dates[a])
     return Diagnosis(
         importer=importer.name,
         accounts=tuple(sorted(first_dates)),
         missing=missing,
         first_dates={account: first_dates[account] for account in missing},
+        opened_late={account: open_dates[account] for account in late},
+        late_first_dates={account: first_dates[account] for account in late},
     )
 
 

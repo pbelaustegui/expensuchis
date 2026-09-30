@@ -908,3 +908,53 @@ def test_diagnose_wraps_an_importer_failure_like_extract(
     assert "ValueError" in excinfo.value.message
     assert "Juan Perez" not in excinfo.value.message
     assert statement.name not in excinfo.value.message
+
+
+def _open_dates(ledger: LedgerPaths, lines: str) -> None:
+    ledger.accounts().write_text(lines, encoding="utf-8")
+
+
+def test_diagnose_flags_an_account_opened_after_its_first_entry(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    _open_dates(
+        ledger,
+        "2020-01-01 open Assets:Test:Caja\n2026-03-01 open Expenses:Otros\n"
+        "2026-02-01 open Expenses:Otros\n",
+    )
+    importer = FakeImporter("test.importer.Fake", entries=[make_entry(dt.date(2026, 1, 5), "k1")])
+    result = pipeline.diagnose(ledger, statement, importers=[importer])
+    assert result.missing == ()
+    assert result.opened_late == {"Expenses:Otros": dt.date(2026, 2, 1)}
+    assert result.late_first_dates == {"Expenses:Otros": dt.date(2026, 1, 5)}
+    assert result.accounts == ("Assets:Test:Caja", "Expenses:Otros")
+
+
+def test_diagnose_does_not_flag_an_account_opened_on_or_before_its_first_entry(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    _open_dates(ledger, "2020-01-01 open Assets:Test:Caja\n2026-01-05 open Expenses:Otros\n")
+    importer = FakeImporter("test.importer.Fake", entries=[make_entry(dt.date(2026, 1, 5), "k1")])
+    result = pipeline.diagnose(ledger, statement, importers=[importer])
+    assert result.missing == ()
+    assert result.opened_late == {}
+    assert result.late_first_dates == {}
+
+
+def test_diagnose_separates_late_accounts_from_truly_missing_ones(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    _open_dates(ledger, "2020-01-01 open Assets:Test:Caja\n2026-03-01 open Expenses:Late\n")
+    entries = [
+        make_entry(dt.date(2026, 1, 5), "k1", account="Expenses:Late"),
+        make_entry(dt.date(2026, 1, 6), "k2", account="Expenses:Gone"),
+    ]
+    importer = FakeImporter("test.importer.Fake", entries=entries)
+    result = pipeline.diagnose(ledger, statement, importers=[importer])
+    assert result.missing == ("Expenses:Gone",)
+    assert result.first_dates == {"Expenses:Gone": dt.date(2026, 1, 6)}
+    assert result.opened_late == {"Expenses:Late": dt.date(2026, 3, 1)}
+    assert result.late_first_dates == {"Expenses:Late": dt.date(2026, 1, 5)}

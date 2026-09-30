@@ -180,14 +180,23 @@ def _print_account_diagnoses(paths: LedgerPaths, statements: Sequence[str]) -> N
             print(f"  {account}")
         if not diagnosis.missing:
             print("missing: none")
-            continue
-        print("missing (paste into accounts.beancount; the tool never opens accounts):")
-        for account in diagnosis.missing:
-            print(f"{diagnosis.first_dates[account].isoformat()} open {account}")
-        print(
-            "note: each date is the earliest entry in this statement; "
-            "use an earlier date if older movements exist."
-        )
+        else:
+            print("missing (paste into accounts.beancount; the tool never opens accounts):")
+            for account in diagnosis.missing:
+                print(f"{diagnosis.first_dates[account].isoformat()} open {account}")
+            print(
+                "note: each date is the earliest entry in this statement; "
+                "use an earlier date if older movements exist."
+            )
+        if diagnosis.opened_late:
+            print(
+                "opened too late (an open directive exists but is dated after this "
+                "statement's earliest entry; move its date to on or before the date shown):"
+            )
+            for account in sorted(diagnosis.opened_late):
+                first = diagnosis.late_first_dates[account].isoformat()
+                current = diagnosis.opened_late[account].isoformat()
+                print(f"{first} open {account}  # currently {current}")
 
 
 def _dispatch(args: argparse.Namespace, paths: LedgerPaths) -> int:
