@@ -826,3 +826,85 @@ def test_pipeline_module_has_no_console_dependency_on_colour() -> None:
     source = (REPO_ROOT / "src" / "expensuchis" / "cli.py").read_text(encoding="utf-8")
     assert "\x1b[" not in source
     assert "\\033[" not in source
+
+
+# ---------------------------------------------------------------------------- diagnose
+
+
+def _snapshot(root: Path) -> dict[str, bytes]:
+    return {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+
+def test_diagnose_reports_posted_accounts_when_all_are_open(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    importer = FakeImporter("test.importer.Fake", entries=[make_entry(dt.date(2026, 1, 5), "k1")])
+    result = pipeline.diagnose(ledger, statement, importers=[importer])
+    assert result.importer == "test.importer.Fake"
+    assert result.accounts == ("Assets:Test:Caja", "Expenses:Otros")
+    assert result.missing == ()
+
+
+def test_diagnose_lists_unopened_accounts_sorted_with_their_first_date(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    entries = [
+        make_entry(dt.date(2026, 2, 9), "k2", account="Expenses:Zeta"),
+        make_entry(dt.date(2026, 1, 5), "k1", account="Expenses:Alfa"),
+        make_entry(dt.date(2026, 3, 1), "k3", account="Expenses:Alfa"),
+    ]
+    importer = FakeImporter("test.importer.Fake", entries=entries)
+    result = pipeline.diagnose(ledger, statement, importers=[importer])
+    assert result.missing == ("Expenses:Alfa", "Expenses:Zeta")
+    assert result.first_dates == {
+        "Expenses:Alfa": dt.date(2026, 1, 5),
+        "Expenses:Zeta": dt.date(2026, 2, 9),
+    }
+
+
+def test_diagnose_writes_nothing_under_the_ledger(ledger: LedgerPaths, statement: Path) -> None:
+    write_ledger(ledger)
+    before = _snapshot(ledger.root)
+    importer = FakeImporter(
+        "test.importer.Fake",
+        entries=[make_entry(dt.date(2026, 1, 5), "k1", account="Expenses:New")],
+    )
+    pipeline.diagnose(ledger, statement, importers=[importer])
+    assert _snapshot(ledger.root) == before
+
+
+def test_diagnose_refuses_a_missing_statement(ledger: LedgerPaths, tmp_path: Path) -> None:
+    write_ledger(ledger)
+    with pytest.raises(pipeline.PipelineError) as excinfo:
+        pipeline.diagnose(ledger, tmp_path / "nope.csv", importers=[FakeImporter("x")])
+    assert excinfo.value.reason == pipeline.STATEMENT_MISSING
+
+
+def test_diagnose_refuses_when_no_importer_claims_the_statement(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    with pytest.raises(pipeline.PipelineError) as excinfo:
+        pipeline.diagnose(ledger, statement, importers=[FakeImporter("x", match=False)])
+    assert excinfo.value.reason == pipeline.NO_IMPORTER
+
+
+def test_diagnose_refuses_when_main_is_missing(ledger: LedgerPaths, statement: Path) -> None:
+    with pytest.raises(pipeline.PipelineError) as excinfo:
+        pipeline.diagnose(ledger, statement, importers=[FakeImporter("x")])
+    assert excinfo.value.reason == pipeline.MAIN_MISSING
+
+
+def test_diagnose_wraps_an_importer_failure_like_extract(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    importer = FakeImporter("test.importer.Fake", error=ValueError("secret Juan Perez"))
+    with pytest.raises(pipeline.PipelineError) as excinfo:
+        pipeline.diagnose(ledger, statement, importers=[importer])
+    assert excinfo.value.reason == pipeline.IMPORTER_RAISED
+    assert "ValueError" in excinfo.value.message
+    assert "Juan Perez" not in excinfo.value.message
+    assert statement.name not in excinfo.value.message

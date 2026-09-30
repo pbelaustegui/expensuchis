@@ -30,6 +30,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from beancount import loader
+from beancount.core import data
 from beancount.ops import validation
 from beancount.parser import printer
 from beangulp import Importer
@@ -97,12 +98,14 @@ __all__ = [
     "STAGING_CORRUPT",
     "STATEMENT_MISSING",
     "AppendResult",
+    "Diagnosis",
     "ExtractResult",
     "Identification",
     "PipelineError",
     "append",
     "approve",
     "build_key_index",
+    "diagnose",
     "extract",
     "identify",
     "ledger_errors",
@@ -210,6 +213,20 @@ class ExtractResult:
 
 
 @dataclasses.dataclass(frozen=True)
+class Diagnosis:
+    """What one statement would post to, and which of those accounts are not open yet.
+
+    Only account names and dates: never a counterparty, narration or basename.
+    ``first_dates`` maps each missing account to the earliest entry date that posts to it.
+    """
+
+    importer: str
+    accounts: tuple[str, ...]
+    missing: tuple[str, ...]
+    first_dates: dict[str, dt.date]
+
+
+@dataclasses.dataclass(frozen=True)
 class AppendResult:
     """The outcome of appending one approved batch."""
 
@@ -313,22 +330,7 @@ def extract(
     (identification,) = identify([statement], importers=importers)
     importer = identification.importer
 
-    existing = _load_existing(paths)
-    try:
-        entries = list(importer.extract(str(statement.resolve()), existing) or [])
-    except Exception as exc:
-        # The statement is named by a content hash, never by its basename: the
-        # basename can name the account holder (T-01d), and this message is what
-        # the CLI prints after "refused:". Neither the hash nor the failure text
-        # below may raise: a statement that is unreadable here, or a redaction key
-        # that cannot be loaded, must still produce this typed refusal, never an
-        # unhandled OSError or RedactionKeyError (R4-001/R3-001/R2-004).
-        statement_id = _safe_statement_id(paths, statement)
-        raise PipelineError(
-            IMPORTER_RAISED,
-            f"Importer {importer.name} refused statement {statement_id}: "
-            f"{_importer_failure_text(exc)}",
-        ) from exc
+    entries = _run_importer(paths, importer, statement)
 
     importer.sort(entries)
     _validate_keys(entries)
@@ -367,6 +369,54 @@ def extract(
     )
 
     return ExtractResult(batch_id, batch_dir, batch_dir / _REPORT, len(kept), len(skipped_entries))
+
+
+# ---------------------------------------------------------------------------- Diagnose
+
+
+def diagnose(
+    paths: LedgerPaths,
+    statement_path: str | Path,
+    importers: Sequence[Importer] | None = None,
+) -> Diagnosis:
+    """Report which accounts a statement would post to and which are not open yet.
+
+    Runs the single claiming importer in memory, exactly as ``extract`` does, and
+    compares the posted accounts against the ``open`` directives of ``main.beancount``.
+    It stages nothing and writes no ledger file. The one exception is shared with
+    ``extract``: naming a failed statement may create the redaction key if absent.
+
+    Raises:
+        PipelineError: :data:`STATEMENT_MISSING`, :data:`NO_IMPORTER`,
+            :data:`AMBIGUOUS_IMPORTER`, :data:`IMPORTER_RAISED`, or :data:`MAIN_MISSING`.
+    """
+    statement = Path(statement_path)
+    if not statement.is_file():
+        raise PipelineError(STATEMENT_MISSING, f"Statement {statement} does not exist.")
+    (identification,) = identify([statement], importers=importers)
+    importer = identification.importer
+
+    main = paths.main()
+    if not main.is_file():
+        raise PipelineError(MAIN_MISSING, f"{main} does not exist.")
+
+    entries = _run_importer(paths, importer, statement)
+    first_dates: dict[str, dt.date] = {}
+    for entry in entries:
+        for posting in getattr(entry, "postings", None) or []:
+            date = entry.date
+            if posting.account not in first_dates or date < first_dates[posting.account]:
+                first_dates[posting.account] = date
+
+    ledger_entries, _errors, _options = loader.load_file(main)
+    opened = {entry.account for entry in ledger_entries if isinstance(entry, data.Open)}
+    missing = tuple(sorted(set(first_dates) - opened))
+    return Diagnosis(
+        importer=importer.name,
+        accounts=tuple(sorted(first_dates)),
+        missing=missing,
+        first_dates={account: first_dates[account] for account in missing},
+    )
 
 
 # ------------------------------------------------------------------------------ Approve
@@ -527,6 +577,26 @@ def _validate_source(source: str) -> None:
             INVALID_SOURCE,
             f"Invalid source {source!r}: it must be a single name, not a path.",
         )
+
+
+def _run_importer(paths: LedgerPaths, importer: Importer, statement: Path) -> list:
+    """Run ``importer`` on ``statement`` in memory, wrapping any failure as a refusal."""
+    existing = _load_existing(paths)
+    try:
+        return list(importer.extract(str(statement.resolve()), existing) or [])
+    except Exception as exc:
+        # The statement is named by a content hash, never by its basename: the
+        # basename can name the account holder (T-01d), and this message is what
+        # the CLI prints after "refused:". Neither the hash nor the failure text
+        # below may raise: a statement that is unreadable here, or a redaction key
+        # that cannot be loaded, must still produce this typed refusal, never an
+        # unhandled OSError or RedactionKeyError (R4-001/R3-001/R2-004).
+        statement_id = _safe_statement_id(paths, statement)
+        raise PipelineError(
+            IMPORTER_RAISED,
+            f"Importer {importer.name} refused statement {statement_id}: "
+            f"{_importer_failure_text(exc)}",
+        ) from exc
 
 
 def _importer_failure_text(exc: Exception) -> str:
