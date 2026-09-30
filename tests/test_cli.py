@@ -526,3 +526,39 @@ def test_identify_accounts_prints_the_opened_too_late_section(
     assert (
         lines[lines.index(header) + 1] == "2026-01-05 open Expenses:Otros  # currently 2026-03-01"
     )
+
+
+def test_identify_accounts_warns_on_stderr_when_the_ledger_has_loader_errors(
+    ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
+) -> None:
+    entries = [make_entry(dt.date(2026, 1, 5), "k1")]
+    monkeypatch.setattr(pipeline, "get_importers", lambda: [FakeImporter(entries=entries)])
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text(ACCOUNTS, encoding="utf-8")
+    with ledger.main().open("a", encoding="utf-8") as handle:
+        handle.write('include "nope.beancount"\n')
+    capsys.readouterr()
+    assert cli.main(["identify", "--accounts", str(statement)]) == 0
+    captured = capsys.readouterr()
+    warnings = [line for line in captured.err.splitlines() if line.startswith("warning:")]
+    assert len(warnings) == 1
+    assert re.fullmatch(
+        r"warning: main\.beancount loaded with \d+ error\(s\); open directives may be "
+        r"missing, so this report may be incomplete\.",
+        warnings[0],
+    )
+    assert "nope" not in captured.err
+    assert "nope" not in captured.out
+    assert "missing: none" in captured.out.splitlines()
+
+
+def test_identify_accounts_is_silent_on_stderr_for_a_clean_ledger(
+    ledger: LedgerPaths, monkeypatch: pytest.MonkeyPatch, capsys, statement: Path
+) -> None:
+    entries = [make_entry(dt.date(2026, 1, 5), "k1")]
+    monkeypatch.setattr(pipeline, "get_importers", lambda: [FakeImporter(entries=entries)])
+    cli.main(["bootstrap"])
+    ledger.accounts().write_text(ACCOUNTS, encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["identify", "--accounts", str(statement)]) == 0
+    assert capsys.readouterr().err == ""

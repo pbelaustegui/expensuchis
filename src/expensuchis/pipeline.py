@@ -221,7 +221,9 @@ class Diagnosis:
     entry date that posts to it. ``opened_late`` maps each account that has an ``open``
     directive, but only dated after the statement's earliest entry for it, to its earliest
     open date; ``late_first_dates`` gives that earliest entry date. Late accounts are never
-    listed in ``missing``.
+    listed in ``missing``. ``ledger_errors`` is the number of errors the beancount loader
+    reported for ``main.beancount`` (the count only, never the messages, which can quote
+    payees); a non-zero value means ``open`` directives may have been dropped.
     """
 
     importer: str
@@ -230,6 +232,7 @@ class Diagnosis:
     first_dates: dict[str, dt.date]
     opened_late: dict[str, dt.date] = dataclasses.field(default_factory=dict)
     late_first_dates: dict[str, dt.date] = dataclasses.field(default_factory=dict)
+    ledger_errors: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -414,7 +417,7 @@ def diagnose(
             if posting.account not in first_dates or date < first_dates[posting.account]:
                 first_dates[posting.account] = date
 
-    ledger_entries, _errors, _options = loader.load_file(main)
+    ledger_entries, ledger_errors, _options = loader.load_file(main)
     open_dates: dict[str, dt.date] = {}
     for entry in ledger_entries:
         if isinstance(entry, data.Open) and (
@@ -430,6 +433,7 @@ def diagnose(
         first_dates={account: first_dates[account] for account in missing},
         opened_late={account: open_dates[account] for account in late},
         late_first_dates={account: first_dates[account] for account in late},
+        ledger_errors=len(ledger_errors),
     )
 
 

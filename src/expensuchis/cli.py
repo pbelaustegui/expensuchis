@@ -170,9 +170,17 @@ def _print_account_diagnoses(paths: LedgerPaths, statements: Sequence[str]) -> N
 
     Account names and dates only: never a counterparty, narration or holder name.
     Every statement is diagnosed before anything is printed, so a refusal on a later
-    statement never leaves partial output behind.
+    statement never leaves partial output behind. When the ledger loaded with errors, one
+    warning (the count only, never the messages) goes to stderr before any output.
     """
     diagnoses = [(statement, pipeline.diagnose(paths, statement)) for statement in statements]
+    ledger_errors = max((d.ledger_errors for _, d in diagnoses), default=0)
+    if ledger_errors > 0:
+        print(
+            f"warning: main.beancount loaded with {ledger_errors} error(s); open directives "
+            "may be missing, so this report may be incomplete.",
+            file=sys.stderr,
+        )
     for statement, diagnosis in diagnoses:
         print(f"{statement}\t{diagnosis.importer}")
         print("accounts:")

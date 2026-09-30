@@ -958,3 +958,23 @@ def test_diagnose_separates_late_accounts_from_truly_missing_ones(
     assert result.first_dates == {"Expenses:Gone": dt.date(2026, 1, 6)}
     assert result.opened_late == {"Expenses:Late": dt.date(2026, 3, 1)}
     assert result.late_first_dates == {"Expenses:Late": dt.date(2026, 1, 5)}
+
+
+def test_diagnose_reports_zero_ledger_errors_for_a_clean_ledger(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    importer = FakeImporter("test.importer.Fake", entries=[make_entry(dt.date(2026, 1, 5), "k1")])
+    assert pipeline.diagnose(ledger, statement, importers=[importer]).ledger_errors == 0
+
+
+def test_diagnose_counts_loader_errors_and_still_returns(
+    ledger: LedgerPaths, statement: Path
+) -> None:
+    write_ledger(ledger)
+    with ledger.main().open("a", encoding="utf-8") as handle:
+        handle.write('include "nope.beancount"\n')
+    importer = FakeImporter("test.importer.Fake", entries=[make_entry(dt.date(2026, 1, 5), "k1")])
+    result = pipeline.diagnose(ledger, statement, importers=[importer])
+    assert result.ledger_errors >= 1
+    assert result.accounts == ("Assets:Test:Caja", "Expenses:Otros")

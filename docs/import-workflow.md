@@ -78,7 +78,9 @@ in an extra "opened too late" section as `<earliest-entry-date> open <account>  
 
 It only reports: it writes nothing (no staging batch, no ledger file), and you paste the
 `open` lines into `accounts.beancount` yourself, moving a date earlier if older movements
-exist. Its output carries account names and dates only, never counterparty names. A
+exist. If `main.beancount` loads with errors (a broken `include`, a parse error), it writes one
+warning to stderr with the error count, because `open` directives may have been dropped and
+the report may be incomplete; it still exits 0. Its output carries account names and dates only, never counterparty names. A
 statement no importer claims, or an importer that fails, is refused exactly as in
 `extract`; a ledger with no `main.beancount` is refused as `main-missing`.
 
