@@ -12,9 +12,10 @@ export EXPENSUCHIS_LEDGER_DIR="$HOME/expensuchis-ledger"   # outside this repo
 mkdir -p "$EXPENSUCHIS_LEDGER_DIR"
 expensuchis bootstrap                       # once, per ledger
 expensuchis identify statement.pdf          # which importer claims it?
+expensuchis identify --accounts statement.pdf   # ...and which accounts are still unopened?
 expensuchis extract --source MercadoPago statement.pdf
 expensuchis report  MercadoPago-20260925T143012Z-1a2b3c4d
-# open every account the batch posts to (see "Opening accounts"), then:
+# open every account listed as missing (see "Opening accounts"), then:
 expensuchis approve MercadoPago-20260925T143012Z-1a2b3c4d
 expensuchis append  MercadoPago-20260925T143012Z-1a2b3c4d
 bean-check "$EXPENSUCHIS_LEDGER_DIR/main.beancount"
@@ -61,9 +62,25 @@ its `USD` sibling, even if the first statement has no dollar rows) and every exp
 category the counterparty map names. The tool never opens an account on its own,
 for the same reason it never picks a category.
 
+To see which accounts a statement needs **before** running `extract`, use
+`identify --accounts`. It runs the importer in memory, lists the accounts the statement
+would post to, and prints every one that has no `open` directive in `main.beancount`
+as a ready-to-paste line dated at that account's earliest entry in the statement:
+
+```bash
+expensuchis identify --accounts statement.pdf
+```
+
+It only reports: it writes nothing (no staging batch, no ledger file), and you paste the
+`open` lines into `accounts.beancount` yourself, moving a date earlier if older movements
+exist. Its output carries account names and dates only, never counterparty names. A
+statement no importer claims, or an importer that fails, is refused exactly as in
+`extract`; a ledger with no `main.beancount` is refused as `main-missing`.
+
 A batch that posts to an unopened account is refused by `append` as
 `post-write-dirty` (every touched file is rolled back), and the refusal quotes only
-the first unknown account. To see them all before `append`, check the ledger with
+the first unknown account. `identify --accounts` lists them all up front; to see them
+from an already staged batch instead, check the ledger with
 the staged batch included, from a scratch file that leaves the ledger untouched:
 
 ```bash

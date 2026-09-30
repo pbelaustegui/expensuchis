@@ -4,7 +4,7 @@ beangulp 0.2.0 ships no console scripts, so this module is the front end over it
 ``Importer`` API. Commands mirror the workflow contract:
 
     expensuchis bootstrap
-    expensuchis identify <path>...
+    expensuchis identify [--accounts] <path>...
     expensuchis extract --source <name> <path>
     expensuchis report <batch-id>
     expensuchis approve <batch-id>
@@ -55,6 +55,14 @@ def build_parser() -> argparse.ArgumentParser:
         "identify", help="report which importer claims each statement file"
     )
     identify_parser.add_argument("paths", nargs="+", metavar="PATH")
+    identify_parser.add_argument(
+        "--accounts",
+        action="store_true",
+        help=(
+            "also list the accounts each statement would post to and the ones not yet "
+            "opened in the ledger, with a suggested open line for each; writes nothing"
+        ),
+    )
 
     extract_parser = subparsers.add_parser(
         "extract", help="parse a statement into a staging batch for review"
@@ -157,10 +165,37 @@ def _silence_stdout() -> None:
         pass
 
 
+def _print_account_diagnoses(paths: LedgerPaths, statements: Sequence[str]) -> None:
+    """Print each statement's importer, posted accounts and unopened accounts.
+
+    Account names and dates only: never a counterparty, narration or holder name.
+    """
+    for statement in statements:
+        diagnosis = pipeline.diagnose(paths, statement)
+        print(f"{statement}\t{diagnosis.importer}")
+        print("accounts:")
+        for account in diagnosis.accounts:
+            print(f"  {account}")
+        if not diagnosis.missing:
+            print("missing: none")
+            continue
+        print("missing (paste into accounts.beancount; the tool never opens accounts):")
+        for account in diagnosis.missing:
+            print(f"{diagnosis.first_dates[account].isoformat()} open {account}")
+        print(
+            "note: each date is the earliest entry in this statement; "
+            "use an earlier date if older movements exist."
+        )
+
+
 def _dispatch(args: argparse.Namespace, paths: LedgerPaths) -> int:
     if args.command == "bootstrap":
         for path in bootstrap(paths):
             print(f"created: {path}")
+        return 0
+
+    if args.command == "identify" and args.accounts:
+        _print_account_diagnoses(paths, args.paths)
         return 0
 
     if args.command == "identify":
